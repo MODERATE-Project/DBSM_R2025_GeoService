@@ -1,0 +1,10 @@
+
+
+# Virtual environments
+# .env in a production environment will be deleted the comment
+.venv
+venv/
+env/
+
+# Datasets
+datasets/
