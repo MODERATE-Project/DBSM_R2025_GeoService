@@ -4,10 +4,22 @@ dotenv: ['.env']
 
 tasks:
   up:
+    desc: "Start all services"
     cmds:
-      - docker compose up --build
+      - docker compose up --build -d
     silent: true
   down:
+    desc: "Stop all services"
     cmds:
       - docker compose down
+    silent: true
+  logs:
+    desc: "Show logs for all services"
+    cmds:
+      - docker compose logs -f
+    silent: true
+  ps:
+    desc: "Show status of all services"
+    cmds:
+      - docker compose ps
     silent: true
