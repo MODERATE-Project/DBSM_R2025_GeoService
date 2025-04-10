@@ -1,0 +1,13 @@
+version: '3'
+
+dotenv: ['.env']
+
+tasks:
+  up:
+    cmds:
+      - docker compose up --build
+    silent: true
+  down:
+    cmds:
+      - docker compose down
+    silent: true
