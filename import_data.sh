@@ -17,6 +17,14 @@ else
 fi
 echo -e "${GREEN} Environment variables loaded.${NC}"
 
+# Get city parameter
+CITY="$1"
+
+if [ -z "$CITY" ]; then
+    echo -e "${RED} No city provided. Usage: $0 <city|all>${NC}"
+    exit 1
+fi
+
 # This script imports data from ./datasets/ in .gpkg format into a PostgreSQL database using the `ogr2ogr` command.
 echo -e "${BLUE} Starting data import...${NC}"
 
@@ -44,12 +52,34 @@ if ! command -v ogr2ogr &> /dev/null; then
 fi
 echo -e "${GREEN} ogr2ogr command is available.${NC}"
 
-# Load ./datasets/dbsm-v1-malta-merge.gpkg file
-echo -e "${YELLOW} Importing data from ./datasets/dbsm-v1-malta-merge.gpkg into PostgreSQL...${NC}"
+# Load GPKG files
+start_time=$(date +%s.%N)
+if [ "$CITY" = "all" ]; then
+    echo -e "${YELLOW} Importing all .gpkg files in ./datasets...${NC}"
+    for file in ./datasets/*.gpkg; do
+        echo -e "${BLUE} Importing ${file}...${NC}"
+        ogr2ogr -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" "$file"
+        if [ $? -ne 0 ]; then
+            echo -e "${RED} Failed to import ${file}.${NC}"
+        fi
+    done
+else
+    FILE="./datasets/dbsm-v1-${CITY}-merge.gpkg"
+    if [ ! -f "$FILE" ]; then
+        echo -e "${RED} File $FILE not found.${NC}"
+        exit 1
+    fi
 
-ogr2ogr \
-    -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB"  \
-    ./datasets/dbsm-v1-malta-merge.gpkg
+    echo -e "${YELLOW} Importing data from ${FILE}...${NC}"
+    ogr2ogr -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" "$FILE"
+
+    if [ $? -ne 0 ]; then
+        echo -e "${RED} Data import failed.${NC}"
+        exit 1
+    fi
+fi
+end_time=$(date +%s.%N)
+duration=$(echo "$end - $start" | bc)
 
 # Check if the import was successful
 if [ $? -ne 0 ]; then
@@ -58,3 +88,4 @@ if [ $? -ne 0 ]; then
 fi
 
 echo -e "${GREEN} Data import completed successfully.${NC}"
+echo -e "${BLUE} Data import completed in ${duration} seconds.${NC}"
