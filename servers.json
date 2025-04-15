@@ -4,7 +4,7 @@
         "Name": "DBSM Postgres",
         "Group": "Servers",
         "Port": 5432,
-        "Username": "postgres",
+        "Username": "dbsm_admin",
         "Host": "postgres",
         "MaintenanceDB": "postgres"
       }

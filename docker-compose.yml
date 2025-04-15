@@ -1,7 +1,9 @@
+name: dbsm-geoservice
 services:
-  # POSTGIS
+
+  ####### POSTGIS #######
   postgres:
-    container_name: postgres
+    container_name: ${PG_CONTAINER}
     build:
       context: .
       dockerfile: Dockerfile.postgis
@@ -20,10 +22,11 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./initdb/postgis.sql:/docker-entrypoint-initdb.d/postgis.sql
+      - ./initdb/postgrest.sql:/docker-entrypoint-initdb.d/postgrest.sql
   
-  # PGADMIN
+  ####### PGADMIN #######
   pgadmin:
-    container_name: pgadmin
+    container_name: dbsm_pgadmin
     image: dpage/pgadmin4:${PGADMIN_VERSION}
     restart: unless-stopped
     ports:
@@ -37,10 +40,39 @@ services:
     volumes:
       - pgadmin_data:/var/lib/pgadmin
       - ./servers.json:/pgadmin4/servers.json
+  
+  ####### POSTGREST #######
+  postgrest:
+    container_name: dbsm_postgrest
+    image: postgrest/postgrest:${POSTGREST_VERSION}
+    restart: unless-stopped
+    ports:
+      - "${POSTGREST_PORT}:3000"
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${PGRST_DB_AUTHENTICATOR_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      PGRST_OPENAPI__SERVER_PROXY_URI: http://127.0.0.1:3000
+      PGRST_DB_ANON_ROLE: ${PGRST_DB_ANON_ROLE}
+      PGRST_DB_SCHEMA: ${PGRST_DB_SCHEMA}
+    depends_on:
+      postgres:
+        condition: service_healthy
 
-  # GEOSERVER
+  swagger:
+    container_name: dbsm_swagger
+    image: swaggerapi/swagger-ui:${SWAGGER_VERSION}
+    ports:
+      - "${SWAGGER_PORT}:8080"
+    expose:
+      - "${SWAGGER_PORT}"
+    environment:
+      API_URL: http://localhost:${POSTGREST_PORT}/
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ####### GEOSERVER #######
   geoserver:
-    container_name: geoserver
+    container_name: dbsm_geoserver
     image: kartoza/geoserver:${GEOSERVER_VERSION}
     restart: on-failure
     ports:
