@@ -29,5 +29,6 @@ https://gdal.org/en/stable/programs/ogr2ogr.html
 
 https://github.com/MODERATE-Project/poc-dbsm-r2023
 https://github.com/kartoza/docker-geoserver/blob/develop/docker-compose.yml
+https://docs.postgrest.org/en/v12/tutorials/tut0.html
 
 https://www.webgis.dev/posts/setting-up-geoserver-with-docker

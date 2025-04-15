@@ -30,7 +30,7 @@ echo -e "${BLUE} Starting data import...${NC}"
 
 # Check if the PostgreSQL database is accessible
 echo -e "${YELLOW} Checking PostgreSQL database connection...${NC}"
-if ! docker exec -u postgres "$PG_CONTAINER" psql -U postgres -c '\q'; then
+if ! docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c '\q'; then
     echo -e "${RED} PostgreSQL database is not accessible. Please check your connection settings.${NC}"
     exit 1
 fi
@@ -58,11 +58,17 @@ if [ "$CITY" = "all" ]; then
     echo -e "${YELLOW} Importing all .gpkg files in ./datasets...${NC}"
     for file in ./datasets/*.gpkg; do
         echo -e "${BLUE} Importing ${file}...${NC}"
-        ogr2ogr -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" "$file"
+        ogr2ogr -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" \
+        "$file" \
+        -nlt PROMOTE_TO_MULTI \
+        -nln v1."$CITY" \
+        -lco SCHEMA=v1
+        
         if [ $? -ne 0 ]; then
             echo -e "${RED} Failed to import ${file}.${NC}"
         fi
     done
+    docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA v1 GRANT SELECT ON TABLES TO web_anon;"
 else
     FILE="./datasets/dbsm-v1-${CITY}-merge.gpkg"
     if [ ! -f "$FILE" ]; then
@@ -71,7 +77,12 @@ else
     fi
 
     echo -e "${YELLOW} Importing data from ${FILE}...${NC}"
-    ogr2ogr -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" "$FILE"
+    ogr2ogr -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" \
+    "$FILE" \
+    -nlt PROMOTE_TO_MULTI \
+    -nln v1."$CITY" \
+    -lco SCHEMA=v1
+    docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "GRANT SELECT ON v1.$CITY TO web_anon;"
 
     if [ $? -ne 0 ]; then
         echo -e "${RED} Data import failed.${NC}"
@@ -79,7 +90,7 @@ else
     fi
 fi
 end_time=$(date +%s.%N)
-duration=$(echo "$end - $start" | bc)
+duration=$(echo "$end_time - $start_time" | bc)
 
 # Check if the import was successful
 if [ $? -ne 0 ]; then
