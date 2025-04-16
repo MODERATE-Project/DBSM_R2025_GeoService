@@ -20,7 +20,7 @@ services:
       timeout: 5s
       retries: 5
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - ./postgres_data:/var/lib/postgresql/data
       - ./initdb/postgis.sql:/docker-entrypoint-initdb.d/postgis.sql
       - ./initdb/postgrest.sql:/docker-entrypoint-initdb.d/postgrest.sql
   

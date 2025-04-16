@@ -58,17 +58,19 @@ if [ "$CITY" = "all" ]; then
     echo -e "${YELLOW} Importing all .gpkg files in ./datasets...${NC}"
     for file in ./datasets/*.gpkg; do
         echo -e "${BLUE} Importing ${file}...${NC}"
-        ogr2ogr -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" \
+        CITY_NAME=$(basename -s .gpkg "$file" | cut -d '-' -f 3)
+        ogr2ogr -overwrite -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" \
         "$file" \
         -nlt PROMOTE_TO_MULTI \
-        -nln v1."$CITY" \
+        -nln v1."$CITY_NAME" \
         -lco SCHEMA=v1
         
         if [ $? -ne 0 ]; then
             echo -e "${RED} Failed to import ${file}.${NC}"
         fi
+
+        docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "GRANT SELECT ON v1.$CITY_NAME TO web_anon;"
     done
-    docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "ALTER DEFAULT PRIVILEGES IN SCHEMA v1 GRANT SELECT ON TABLES TO web_anon;"
 else
     FILE="./datasets/dbsm-v1-${CITY}-merge.gpkg"
     if [ ! -f "$FILE" ]; then
@@ -77,7 +79,7 @@ else
     fi
 
     echo -e "${YELLOW} Importing data from ${FILE}...${NC}"
-    ogr2ogr -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" \
+    ogr2ogr -overwrite -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" \
     "$FILE" \
     -nlt PROMOTE_TO_MULTI \
     -nln v1."$CITY" \

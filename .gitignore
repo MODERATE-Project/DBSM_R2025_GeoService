@@ -8,3 +8,6 @@ env/
 
 # Datasets
 datasets/
+
+# Postgresql data
+postgres_data/
