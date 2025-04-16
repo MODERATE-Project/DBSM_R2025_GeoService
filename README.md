@@ -71,30 +71,63 @@ Here are the default endpoints and credentials exposed by the services (as defin
 
 ---
 
-## GeoServer load data
+## Load data from PostGIS into GeoServer
 
-Para cargar uno de los conjuntos de datos de PostgreSQL a GeoServer:
+Once the stack is running (`task up`), GeoServer will be accessible at:  
+[http://localhost:8081/geoserver](http://localhost:8081/geoserver)
 
-1. Crear un espacio de trabajo Data -> Workspaces
+Log in using the credentials specified in your `.env` file:
 
-    1.1. Add a new workspace
+**Username**: `admin`  
+**Password**: `geoserver`
 
-    1.2. Enter the name as dbsm and Namespace URI as http://localhost:8081/geoserver/dbsm
+Follow these steps to connect GeoServer with the PostGIS database:
 
-2. Crear un store
+### 1. Create a Workspace
 
-    2.1. Add a new store
+1. In the GeoServer interface, go to `Data → Workspaces`.
+2. Click **"Add new Workspace"**.
+3. Fill out the form:
+   - **Name**: `dbsm`
+   - **Namespace URI**: `http://localhost:8081/geoserver/dbsm`
+4. Click **Submit**.
 
-    2.2. 
+### 2. Create a PostGIS store
 
-3. Crear una capa
+1. Go to `Data → Stores`, then click **"Add new Store"**.
+2. Select **PostGIS - PostGIS Database** from the *Vector Data Sources* list.
+3. Fill in the connection details:
+   - **Workspace**: `dbsm`
+   - **Data Source Name**: e.g. `dbsm_pg` or `postgis` 
+   - **host**: `postgres` (this is the Docker service name)
+   - **port**: `5432`
+   - **database**: `dbsm`
+   - **schema**: e.g. `v1` (or `public`, depending on your import)
+   - **user**: `dbsm_admin`
+   - **password**: `postgres`
+   - **Expose primary keys**: `true` (check this option)
+4. Click **Save**.
 
-    3.1. Add new layer
+### 3. Publish a layer
 
-    3.2. 
+Once the store is saved, you will be prompted to add a new layer:
 
-4. Previsualización de capas
+1. Select a table or view from the list (e.g. `malta`) and click **Publish**.
+2. On the configuration page:
+   - **Title** and **Abstract**: optional metadata.
+   - **Coordinate Reference System**:
+     - Set the **SRS** (e.g. `EPSG:4326` or `EPSG:3857`)
+     - Click **Compute from data** and **Compute from native bounds**
+   - Leave other settings as default.
+3. Click **Save**.
 
+### 4. Preview the Layer
+
+1. Navigate to `Layer Preview` in the left menu.
+2. Find your newly published layer.
+3. Use the **OpenLayers** or **GeoJSON** links to preview the data.
+
+> 💡 If you don't see your data, double-check that the dataset was imported correctly into PostgreSQL and that your schema and table names match what you selected during layer publishing.
 
 ---
 
