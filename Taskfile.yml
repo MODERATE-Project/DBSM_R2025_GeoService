@@ -13,6 +13,21 @@ tasks:
     cmds:
       - docker compose down
     silent: true
+  stop:
+    desc: "Stop all services"
+    cmds:
+      - docker compose stop
+    silent: true
+  start:
+    desc: "Start all services"
+    cmds:
+      - docker compose start
+    silent: true
+  restart:
+    desc: "Restart all services"
+    cmds:
+      - docker compose restart
+    silent: true
   logs:
     desc: "Show logs for all services"
     cmds:
@@ -29,4 +44,4 @@ tasks:
     cmds:
       - ./import_data.sh {{.CITY}}
     vars:
-      CITY: '{{.CITY| default "malta"}}'
+      CITY: '{{.CITY | default "malta"}}'

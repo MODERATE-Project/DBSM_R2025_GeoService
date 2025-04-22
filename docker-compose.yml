@@ -50,7 +50,7 @@ services:
       - "${POSTGREST_PORT}:3000"
     environment:
       PGRST_DB_URI: postgres://authenticator:${PGRST_DB_AUTHENTICATOR_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      PGRST_OPENAPI__SERVER_PROXY_URI: http://127.0.0.1:3000
+      PGRST_OPENAPI_SERVER_PROXY_URI: http://127.0.0.1:3000
       PGRST_DB_ANON_ROLE: ${PGRST_DB_ANON_ROLE}
       PGRST_DB_SCHEMA: ${PGRST_DB_SCHEMA}
     depends_on:
@@ -91,10 +91,9 @@ services:
         retries: 3
         start_period: 1m
     volumes:
-      - geoserver_data:/opt/geoserver/data_dir
+      - ./geoserver_data:/opt/geoserver/data_dir
       - ./initdb/geoserver.xml:/opt/geoserver/data_dir/security/geoserver.xml
 
 volumes:
   postgres_data: {}
   pgadmin_data: {}
-  geoserver_data:

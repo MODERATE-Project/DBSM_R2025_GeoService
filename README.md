@@ -90,6 +90,7 @@ Follow these steps to connect GeoServer with the PostGIS database:
 3. Fill out the form:
    - **Name**: `dbsm`
    - **Namespace URI**: `http://localhost:8081/geoserver/dbsm`
+   - **Checked default**
 4. Click **Submit**.
 
 ### 2. Create a PostGIS store
