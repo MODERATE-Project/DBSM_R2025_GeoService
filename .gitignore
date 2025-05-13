@@ -8,3 +8,9 @@ env/
 
 # Datasets
 datasets/
+
+# Postgresql data
+postgres_data/
+
+# Geoserver data
+geoserver_data/
