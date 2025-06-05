@@ -66,8 +66,8 @@ Here are the default endpoints and credentials exposed by the services (as defin
 |---------------|-------------------------------------------------------------|-----------------------------------------|
 | **PgAdmin**   | [http://localhost:5050](http://localhost:5050)              | Email: `user@domain.com`<br>Password: `postgres` |
 | **PostgREST** | [http://localhost:3000](http://localhost:3000)              | No auth (public access enabled)         |
-| **Swagger UI**| [http://localhost:8081](http://localhost:8081)              | No auth (PostgREST schema preview)      |
-| **GeoServer** | [http://localhost:8082/geoserver](http://localhost:8082/geoserver) | User: `admin`<br>Password: `geoserver` |
+| **Swagger UI**| [http://localhost:8081](http://localhost:8082)              | No auth (PostgREST schema preview)      |
+| **GeoServer** | [http://localhost:8082/geoserver](http://localhost:8081/geoserver) | User: `admin`<br>Password: `geoserver` |
 
 ---
 

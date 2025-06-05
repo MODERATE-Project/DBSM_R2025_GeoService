@@ -107,8 +107,9 @@ services:
       - "5555:5555"  # Puedes omitirlo si solo lo usas internamente
     environment:
       - LANG=en_EN.UTF-8
-      - QGIS_PROJECT_FILE=/data/dbsm.qgs
+      - QGIS_PROJECT_FILE=/data/dbsm_demo.qgs
       - QGIS_SERVER_LOG_LEVEL=0  # INFO (log all requests)
+      - QGIS_SERVER_LOG_STDERR=1
       - DEBUG=1                  # display env before spawning QGIS Server
     volumes:
       - ./qgis-server/data:/data:ro

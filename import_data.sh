@@ -19,9 +19,16 @@ echo -e "${GREEN} Environment variables loaded.${NC}"
 
 # Get city parameter
 CITY="$1"
+# Get version parameter
+VERSION="$2"
 
 if [ -z "$CITY" ]; then
     echo -e "${RED} No city provided. Usage: $0 <city|all>${NC}"
+    exit 1
+fi
+
+if [ -z "$VERSION" ]; then
+    echo -e "${RED} No version provided. Usage: $0 <v1|v2>${NC}"
     exit 1
 fi
 
@@ -59,20 +66,32 @@ if [ "$CITY" = "all" ]; then
     for file in ./datasets/*.gpkg; do
         echo -e "${BLUE} Importing ${file}...${NC}"
         CITY_NAME=$(basename -s .gpkg "$file" | cut -d '-' -f 3)
+        VERSION_DATASET=$(basename -s .gpkg "$file" | cut -d '-' -f 2)
         ogr2ogr -overwrite -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" \
         "$file" \
         -nlt PROMOTE_TO_MULTI \
-        -nln v1."$CITY_NAME" \
-        -lco SCHEMA=v1
+        -nln $VERSION_DATASET."$CITY_NAME" \
+        -lco SCHEMA=$VERSION_DATASET
         
         if [ $? -ne 0 ]; then
             echo -e "${RED} Failed to import ${file}.${NC}"
         fi
 
-        docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "GRANT SELECT ON v1.$CITY_NAME TO web_anon;"
+        docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "GRANT SELECT ON $VERSION_DATASET.$CITY_NAME TO web_anon;"
     done
 else
-    FILE="./datasets/dbsm-v1-${CITY}-merge.gpkg"
+    if [ "$VERSION" != "v1" ] && [ "$VERSION" != "v2" ]; then
+        echo -e "${RED} Invalid version provided. Please use 'v1' or 'v2'.${NC}"
+        exit 1
+    fi
+    
+    if [ "$VERSION" = "v1" ]; then
+        FILE="./datasets/dbsm-v1-${CITY}-merge.gpkg"
+    elif [ "$VERSION" = "v2" ]; then
+        FILE="./datasets/dbsm-v2-${CITY}-R2025.gpkg"
+    fi
+
+    
     if [ ! -f "$FILE" ]; then
         echo -e "${RED} File $FILE not found.${NC}"
         exit 1
@@ -82,9 +101,9 @@ else
     ogr2ogr -overwrite -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" \
     "$FILE" \
     -nlt PROMOTE_TO_MULTI \
-    -nln v1."$CITY" \
-    -lco SCHEMA=v1
-    docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "GRANT SELECT ON v1.$CITY TO web_anon;"
+    -nln $VERSION."$CITY" \
+    -lco SCHEMA=$VERSION
+    docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "GRANT SELECT ON $VERSION.$CITY TO web_anon;"
 
     if [ $? -ne 0 ]; then
         echo -e "${RED} Data import failed.${NC}"

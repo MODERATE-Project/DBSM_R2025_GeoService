@@ -39,9 +39,10 @@ tasks:
       - docker compose ps
     silent: true
   import:
-    desc: "📦 Import GPKG data into PostGIS | 🧰 Usage: task import -- CITY=malta | 🌍 CITY options: austria, belgium, bulgaria, croatia, cyprus, czechia, denmark, estonia, finland, france, germany, greece, hungary, ireland, italy, latvia, lithuania, luxembourg, malta, netherlands, poland, portugal, romania, slovakia, slovenia, spain, sweden"
+    desc: "📦 Import GPKG data into PostGIS | 🧰 Usage: task import -- CITY=malta -- VERSION=v1| 🌍 CITY options: austria, belgium, bulgaria, croatia, cyprus, czechia, denmark, estonia, finland, france, germany, greece, hungary, ireland, italy, latvia, lithuania, luxembourg, malta, netherlands, poland, portugal, romania, slovakia, slovenia, spain, sweden | Version options: v1, v2"
 
     cmds:
-      - ./import_data.sh {{.CITY}}
+      - ./import_data.sh {{.CITY}} {{.VERSION}}
     vars:
       CITY: '{{.CITY | default "malta"}}'
+      VERSION: '{{.VERSION | default "v1"}}'
