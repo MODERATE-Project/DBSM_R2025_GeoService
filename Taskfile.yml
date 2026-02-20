@@ -2,6 +2,11 @@ version: '3'
 
 dotenv: ['.env']
 
+vars:
+  CONTAINER_NAME: qgis-desktop
+  QGIS_IMAGE: qgis/qgis:latest
+  DATA_PATH: "{{.ROOT_DIR}}/qgis-desktop-data"
+
 tasks:
   up:
     desc: "Start all services"
@@ -46,3 +51,42 @@ tasks:
     vars:
       CITY: '{{.CITY | default "malta"}}'
       VERSION: '{{.VERSION | default "v1"}}'
+
+  qgis:
+    desc: "Lanza QGIS Desktop como contenedor gráfico independiente"
+    deps: [qgis:ensure-xhost]
+    cmds:
+      - mkdir -p {{.DATA_PATH}}
+      - docker run -d \
+          --name {{.CONTAINER_NAME}} \
+          --network host \
+          -e DISPLAY={{.DISPLAY | default ":0"}} \
+          -e QT_X11_NO_MITSHM=1 \
+          -e LIBGL_ALWAYS_INDIRECT=1 \
+          -e QGIS_RENDERER=software \
+          -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
+          -v {{.DATA_PATH}}:/home/qgis \
+          {{.QGIS_IMAGE}} \
+          qgis
+    preconditions:
+      - sh: "! docker ps -q -f name={{.CONTAINER_NAME}}"
+        msg: "El contenedor {{.CONTAINER_NAME}} ya está en ejecución. Usa 'task qgis:restart' o 'task qgis:stop'."
+
+  qgis:ensure-xhost:
+    internal: true
+    cmds:
+      - xhost +local:docker
+
+  qgis:stop:
+    desc: "Detiene QGIS Desktop"
+    cmds:
+      - docker stop {{.CONTAINER_NAME}} || true
+      - docker rm {{.CONTAINER_NAME}} || true
+      - xhost -local:docker
+
+  qgis:restart:
+    desc: "Reinicia QGIS Desktop"
+    cmds:
+      - task qgis:stop
+      - task qgis
+  
