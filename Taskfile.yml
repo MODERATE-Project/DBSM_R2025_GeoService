@@ -2,10 +2,6 @@ version: '3'
 
 dotenv: ['.env']
 
-vars:
-  CONTAINER_NAME: qgis-desktop
-  QGIS_IMAGE: qgis/qgis:latest
-  DATA_PATH: "{{.ROOT_DIR}}/qgis-desktop-data"
 
 tasks:
   up:
@@ -52,41 +48,65 @@ tasks:
       CITY: '{{.CITY | default "malta"}}'
       VERSION: '{{.VERSION | default "v1"}}'
 
-  qgis:
-    desc: "Lanza QGIS Desktop como contenedor gráfico independiente"
-    deps: [qgis:ensure-xhost]
-    cmds:
-      - mkdir -p {{.DATA_PATH}}
-      - docker run -d \
-          --name {{.CONTAINER_NAME}} \
-          --network host \
-          -e DISPLAY={{.DISPLAY | default ":0"}} \
-          -e QT_X11_NO_MITSHM=1 \
-          -e LIBGL_ALWAYS_INDIRECT=1 \
-          -e QGIS_RENDERER=software \
-          -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
-          -v {{.DATA_PATH}}:/home/qgis \
-          {{.QGIS_IMAGE}} \
-          qgis
-    preconditions:
-      - sh: "! docker ps -q -f name={{.CONTAINER_NAME}}"
-        msg: "El contenedor {{.CONTAINER_NAME}} ya está en ejecución. Usa 'task qgis:restart' o 'task qgis:stop'."
 
-  qgis:ensure-xhost:
-    internal: true
-    cmds:
-      - xhost +local:docker
+  # ---------------------------------------------------------------------------
+  # Database SQL management
+  # Use these tasks when the postgres_data volume already exists and Docker's
+  # initdb scripts (initdb/*.sql) have NOT been re-executed automatically.
+  # Docker only runs initdb scripts on the very first volume creation.
+  # ---------------------------------------------------------------------------
 
-  qgis:stop:
-    desc: "Detiene QGIS Desktop"
+  db:apply-sql:
+    desc: |
+      Apply all SQL init files (postgis.sql, postgrest.sql, api_functions.sql)
+      directly to the running Postgres container.
+      Use this after adding or modifying any file in initdb/ when the database
+      volume already exists (i.e. ./postgres_data is not empty).
+      The container must be running: run 'task up' first.
     cmds:
-      - docker stop {{.CONTAINER_NAME}} || true
-      - docker rm {{.CONTAINER_NAME}} || true
-      - xhost -local:docker
+      - echo ">> Applying postgis.sql..."
+      - docker exec -i {{.PG_CONTAINER}} psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < initdb/postgis.sql
+      - echo ">> Applying postgrest.sql..."
+      - docker exec -i {{.PG_CONTAINER}} psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < initdb/postgrest.sql
+      - echo ">> Applying api_functions.sql..."
+      - docker exec -i {{.PG_CONTAINER}} psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < initdb/api_functions.sql
+      - echo ">> All SQL files applied successfully."
+    silent: false
 
-  qgis:restart:
-    desc: "Reinicia QGIS Desktop"
+  db:apply-sql-safe:
+    desc: |
+      Same as db:apply-sql but checks first whether the database volume already
+      contains data. Exits with a warning if the initdb scripts have not yet
+      been run (empty volume), so you can simply restart the stack instead.
+      Use this when unsure whether to apply SQL manually or just restart.
     cmds:
-      - task qgis:stop
-      - task qgis
+      - |
+        TABLE_COUNT=$(docker exec {{.PG_CONTAINER}} psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} -tAc \
+          "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema IN ('v1','v2');")
+        if [ "$TABLE_COUNT" -eq "0" ]; then
+          echo "No tables found in v1/v2 schemas. The volume appears empty."
+          echo "Tip: just run 'task up' — Docker will execute initdb scripts automatically."
+          exit 0
+        fi
+        echo "Existing tables detected ($TABLE_COUNT). Applying SQL files manually..."
+        task db:apply-sql
+    silent: false
+
+  db:reset:
+    desc: |
+      ⚠️  DESTRUCTIVE — Full database reset.
+      Stops all services, removes the postgres_data volume, and restarts the
+      stack so that all initdb SQL scripts are re-executed from scratch.
+      Use this only when you need a clean slate (e.g. major schema changes).
+      All imported data will be lost and must be re-imported with 'task import'.
+    cmds:
+      - echo ">> Stopping services..."
+      - docker compose down
+      - echo ">> Removing postgres_data volume..."
+      - docker volume rm dbsm-geoservice_postgres_data || true
+      - rm -rf ./postgres_data || true
+      - echo ">> Restarting stack (initdb scripts will run automatically)..."
+      - docker compose up --build -d
+      - echo ">> Done. Re-import data with: task import -- CITY=<country> -- VERSION=<v1|v2>"
+    silent: false
   
