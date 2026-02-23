@@ -40,29 +40,24 @@ tasks:
       - docker compose ps
     silent: true
   import:
-    desc: "📦 Import GPKG data into PostGIS | 🧰 Usage: task import -- CITY=malta -- VERSION=v1| 🌍 CITY options: austria, belgium, bulgaria, croatia, cyprus, czechia, denmark, estonia, finland, france, germany, greece, hungary, ireland, italy, latvia, lithuania, luxembourg, malta, netherlands, poland, portugal, romania, slovakia, slovenia, spain, sweden | Version options: v1, v2"
+    desc: "📦 Import GPKG data into PostGIS | 🧰 Usage: task import -- CITY=malta -- VERSION=v2| 🌍 CITY options: austria, belgium, bulgaria, croatia, cyprus, czechia, denmark, estonia, finland, france, germany, greece, hungary, ireland, italy, latvia, lithuania, luxembourg, malta, netherlands, poland, portugal, romania, slovakia, slovenia, spain, sweden | Version options: v1, v2"
 
     cmds:
       - ./import_data.sh {{.CITY}} {{.VERSION}}
     vars:
       CITY: '{{.CITY | default "malta"}}'
-      VERSION: '{{.VERSION | default "v1"}}'
+      VERSION: '{{.VERSION | default "v2"}}'
 
-
-  # ---------------------------------------------------------------------------
-  # Database SQL management
-  # Use these tasks when the postgres_data volume already exists and Docker's
-  # initdb scripts (initdb/*.sql) have NOT been re-executed automatically.
-  # Docker only runs initdb scripts on the very first volume creation.
-  # ---------------------------------------------------------------------------
+  api:reload:
+    desc: "🔄 Reload PostgREST schema cache (makes new SQL views/functions visible in API)"
+    cmds:
+      - echo ">> Signalling PostgREST to reload schema cache..."
+      - docker kill -s SIGUSR1 dbsm_postgrest
+      - echo ">> API Schema reloaded!"
+    silent: false
 
   db:apply-sql:
-    desc: |
-      Apply all SQL init files (postgis.sql, postgrest.sql, api_functions.sql)
-      directly to the running Postgres container.
-      Use this after adding or modifying any file in initdb/ when the database
-      volume already exists (i.e. ./postgres_data is not empty).
-      The container must be running: run 'task up' first.
+    desc: "📝 Apply SQL init files directly and reload API schema"
     cmds:
       - echo ">> Applying postgis.sql..."
       - docker exec -i {{.PG_CONTAINER}} psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < initdb/postgis.sql
@@ -71,42 +66,43 @@ tasks:
       - echo ">> Applying api_functions.sql..."
       - docker exec -i {{.PG_CONTAINER}} psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < initdb/api_functions.sql
       - echo ">> All SQL files applied successfully."
+      - task: api:reload # <-- CRUCIAL: Recarga la API automáticamente
     silent: false
 
   db:apply-sql-safe:
-    desc: |
-      Same as db:apply-sql but checks first whether the database volume already
-      contains data. Exits with a warning if the initdb scripts have not yet
-      been run (empty volume), so you can simply restart the stack instead.
-      Use this when unsure whether to apply SQL manually or just restart.
+    desc: "🛡️ Apply SQL only if database already has tables"
     cmds:
       - |
         TABLE_COUNT=$(docker exec {{.PG_CONTAINER}} psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} -tAc \
           "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema IN ('v1','v2');")
         if [ "$TABLE_COUNT" -eq "0" ]; then
-          echo "No tables found in v1/v2 schemas. The volume appears empty."
-          echo "Tip: just run 'task up' — Docker will execute initdb scripts automatically."
+          echo "No tables found. The volume appears empty. Run 'task up' to let Docker auto-init."
           exit 0
         fi
-        echo "Existing tables detected ($TABLE_COUNT). Applying SQL files manually..."
+        echo "Existing tables detected. Applying SQL files manually..."
         task db:apply-sql
     silent: false
 
-  db:reset:
-    desc: |
-      ⚠️  DESTRUCTIVE — Full database reset.
-      Stops all services, removes the postgres_data volume, and restarts the
-      stack so that all initdb SQL scripts are re-executed from scratch.
-      Use this only when you need a clean slate (e.g. major schema changes).
-      All imported data will be lost and must be re-imported with 'task import'.
+  clean:soft:
+    desc: "🧹 Stop services and remove containers (keeps data volumes)"
     cmds:
-      - echo ">> Stopping services..."
-      - docker compose down
-      - echo ">> Removing postgres_data volume..."
-      - docker volume rm dbsm-geoservice_postgres_data || true
-      - rm -rf ./postgres_data || true
-      - echo ">> Restarting stack (initdb scripts will run automatically)..."
-      - docker compose up --build -d
-      - echo ">> Done. Re-import data with: task import -- CITY=<country> -- VERSION=<v1|v2>"
+      - docker compose down --remove-orphans
     silent: false
-  
+
+  clean:nuke:
+    desc: "⚠️ DESTRUCTIVE — Full environment reset. Removes ALL volumes and data."
+    prompt: "This will destroy your database and geoserver data. Are you sure?"
+    cmds:
+      - echo ">> Destroying all services and volumes..."
+      - docker compose down -v --remove-orphans
+      - rm -rf ./postgres_data || true 
+      - echo ">> Environment is completely clean. Run 'task up' to start fresh."
+    silent: false
+
+  db:reset:
+    desc: "♻️ Rebuild database from scratch (Alias for clean:nuke + up)"
+    cmds:
+      - task: clean:nuke
+      - task: up
+      - echo ">> Stack restarted. Re-import your data with 'task import'"
+    silent: false

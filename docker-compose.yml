@@ -23,6 +23,9 @@ services:
       - ./postgres_data:/var/lib/postgresql/data
       - ./initdb/postgis.sql:/docker-entrypoint-initdb.d/postgis.sql
       - ./initdb/postgrest.sql:/docker-entrypoint-initdb.d/postgrest.sql
+      - ./initdb/api_functions.sql:/docker-entrypoint-initdb.d/api_functions.sql
+    networks:
+      - dbsm-geoservice-net
 
   ####### PGADMIN #######
   pgadmin:
@@ -40,6 +43,8 @@ services:
     volumes:
       - pgadmin_data:/var/lib/pgadmin
       - ./servers.json:/pgadmin4/servers.json
+    networks:
+      - dbsm-geoservice-net
 
   ####### POSTGREST #######
   postgrest:
@@ -56,6 +61,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - dbsm-geoservice-net
 
   swagger:
     container_name: dbsm_swagger
@@ -69,6 +76,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - dbsm-geoservice-net
 
   ####### GEOSERVER #######
   geoserver:
@@ -99,6 +108,12 @@ services:
     volumes:
       - ./geoserver_data:/opt/geoserver/data_dir
       - ./initdb/geoserver.xml:/opt/geoserver/data_dir/security/geoserver.xml
+    networks:
+      - dbsm-geoservice-net
+
+networks:
+  dbsm-geoservice-net:
+    driver: bridge
 
 volumes:
   postgres_data: {}
