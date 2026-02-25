@@ -61,27 +61,51 @@ echo -e "${GREEN} ogr2ogr command is available.${NC}"
 
 # Load GPKG files
 start_time=$(date +%s.%N)
+
+import_and_grant() {
+    local target_file=$1
+    local target_city=$2
+    local target_version=$3
+
+    echo -e "${YELLOW} Processing: ${target_city} (${target_version})${NC}"
+
+    # A. Asegurar que el esquema existe y tiene permisos base ANTES de importar
+    docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE SCHEMA IF NOT EXISTS \"$target_version\"; GRANT USAGE ON SCHEMA \"$target_version\" TO web_anon;" > /dev/null
+
+    # B. Importar con ogr2ogr
+    ogr2ogr -overwrite -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" \
+    "$target_file" \
+    -nlt PROMOTE_TO_MULTI \
+    -nln "$target_city" \
+    -lco SCHEMA="$target_version"
+
+    # Capturamos el error de ogr2ogr inmediatamente
+    if [ $? -ne 0 ]; then
+        echo -e "${RED} Failed to import ${target_file}.${NC}"
+        return 1
+    fi
+
+    # C. Dar permisos explícitos a la tabla recién creada (usando comillas dobles para evitar errores de sintaxis)
+    docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "GRANT SELECT ON \"$target_version\".\"$target_city\" TO web_anon;" > /dev/null
+    
+    # D. Revocar permisos de escritura a la tabla recién creada
+    docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON \"$target_version\".\"$target_city\" FROM web_anon;" > /dev/null
+
+    echo -e "${GREEN} Successfully imported and granted permissions for ${target_version}.${target_city}${NC}"
+    return 0
+}
+
 if [ "$CITY" = "all" ]; then
     echo -e "${YELLOW} Importing all .gpkg files in ./datasets...${NC}"
     for file in ./datasets/*.gpkg; do
         echo -e "${BLUE} Importing ${file}...${NC}"
         CITY_NAME=$(basename -s .gpkg "$file" | cut -d '-' -f 3)
         VERSION_DATASET=$(basename -s .gpkg "$file" | cut -d '-' -f 2)
-        ogr2ogr -overwrite -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" \
-        "$file" \
-        -nlt PROMOTE_TO_MULTI \
-        -nln $VERSION_DATASET."$CITY_NAME" \
-        -lco SCHEMA=$VERSION_DATASET
-        
-        if [ $? -ne 0 ]; then
-            echo -e "${RED} Failed to import ${file}.${NC}"
-        fi
-
-        docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "GRANT SELECT ON $VERSION_DATASET.$CITY_NAME TO web_anon;"
+        import_and_grant "$file" "$CITY_NAME" "$VERSION_DATASET"
     done
 else
     if [ "$VERSION" != "v1" ] && [ "$VERSION" != "v2" ]; then
-        echo -e "${RED} Invalid version provided. Please use 'v1' or 'v2'.${NC}"
+        echo -e "${RED} Invalid version. Please use 'v1' or 'v2'.${NC}"
         exit 1
     fi
     
@@ -97,18 +121,7 @@ else
         exit 1
     fi
 
-    echo -e "${YELLOW} Importing data from ${FILE}...${NC}"
-    ogr2ogr -overwrite -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" \
-    "$FILE" \
-    -nlt PROMOTE_TO_MULTI \
-    -nln $VERSION."$CITY" \
-    -lco SCHEMA=$VERSION
-    docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "GRANT SELECT ON $VERSION.$CITY TO web_anon;"
-
-    if [ $? -ne 0 ]; then
-        echo -e "${RED} Data import failed.${NC}"
-        exit 1
-    fi
+    import_and_grant "$FILE" "$CITY" "$VERSION" || exit 1
 fi
 end_time=$(date +%s.%N)
 duration=$(echo "$end_time - $start_time" | bc)

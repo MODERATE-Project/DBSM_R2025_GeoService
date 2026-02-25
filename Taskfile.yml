@@ -2,7 +2,6 @@ version: '3'
 
 dotenv: ['.env']
 
-
 tasks:
   up:
     desc: "Start all services"
@@ -40,13 +39,26 @@ tasks:
       - docker compose ps
     silent: true
   import:
-    desc: "📦 Import GPKG data into PostGIS | 🧰 Usage: task import -- CITY=malta -- VERSION=v2| 🌍 CITY options: austria, belgium, bulgaria, croatia, cyprus, czechia, denmark, estonia, finland, france, germany, greece, hungary, ireland, italy, latvia, lithuania, luxembourg, malta, netherlands, poland, portugal, romania, slovakia, slovenia, spain, sweden | Version options: v1, v2"
-
+    desc: "📦 Full Pipeline: Import GPKG -> Publish GeoServer -> Reload API | 🧰 Usage: task import CITY=malta VERSION=v2 | 🌍 CITY options: austria, belgium, bulgaria, croatia, cyprus, czechia, denmark, estonia, finland, france, germany, greece, hungary, ireland, italy, latvia, lithuania, luxembourg, malta, netherlands, poland, portugal, romania, slovakia, slovenia, spain, sweden | Version options: v1, v2"
     cmds:
+      - echo ">> Step 1: Importing data to PostGIS..."
       - ./import_data.sh {{.CITY}} {{.VERSION}}
+      - echo ">> Step 2: Publishing to GeoServer via Python API..."
+      - task: geoserver:publish
+        vars: { CITY: '{{.CITY}}', VERSION: '{{.VERSION}}' }
+      - echo ">> Step 3: Refreshing PostgREST API cache..."
+      - task: api:reload
     vars:
       CITY: '{{.CITY | default "malta"}}'
       VERSION: '{{.VERSION | default "v2"}}'
+
+  geoserver:publish:
+    desc: "🗺️ Publish an existing PostGIS table to GeoServer using Python REST API"
+    cmds:
+      - python3 gsconfig.py {{.CITY}} {{.VERSION}}
+    vars:
+      CITY: '{{.CITY}}'
+      VERSION: '{{.VERSION}}'
 
   api:reload:
     desc: "🔄 Reload PostgREST schema cache (makes new SQL views/functions visible in API)"
@@ -66,7 +78,7 @@ tasks:
       - echo ">> Applying api_functions.sql..."
       - docker exec -i {{.PG_CONTAINER}} psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < initdb/api_functions.sql
       - echo ">> All SQL files applied successfully."
-      - task: api:reload # <-- CRUCIAL: Recarga la API automáticamente
+      - task: api:reload # <-- Reloads the API automatically
     silent: false
 
   db:apply-sql-safe:
@@ -106,3 +118,4 @@ tasks:
       - task: up
       - echo ">> Stack restarted. Re-import your data with 'task import'"
     silent: false
+

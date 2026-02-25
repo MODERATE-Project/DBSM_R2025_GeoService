@@ -21,9 +21,9 @@ services:
       retries: 5
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
-      - ./initdb/postgis.sql:/docker-entrypoint-initdb.d/postgis.sql
-      - ./initdb/postgrest.sql:/docker-entrypoint-initdb.d/postgrest.sql
-      - ./initdb/api_functions.sql:/docker-entrypoint-initdb.d/api_functions.sql
+      - ./initdb/01_postgis.sql:/docker-entrypoint-initdb.d/01_postgis.sql
+      - ./initdb/02_postgrest.sql:/docker-entrypoint-initdb.d/02_postgrest.sql
+      - ./initdb/03_api_functions.sql:/docker-entrypoint-initdb.d/03_api_functions.sql
     networks:
       - dbsm-geoservice-net
 
@@ -58,6 +58,7 @@ services:
       PGRST_OPENAPI_SERVER_PROXY_URI: http://127.0.0.1:3000
       PGRST_DB_ANON_ROLE: ${PGRST_DB_ANON_ROLE}
       PGRST_DB_SCHEMA: ${PGRST_DB_SCHEMA}
+      PGRST_OPENAPI_MODE: ${PGRST_OPENAPI_MODE}
     depends_on:
       postgres:
         condition: service_healthy
