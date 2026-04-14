@@ -67,13 +67,17 @@ import_and_grant() {
     local target_city=$2
     local target_version=$3
 
-    echo -e "${YELLOW} Processing: ${target_city} (${target_version})${NC}"
+    local file_size
+    file_size=$(du -sh "$target_file" 2>/dev/null | cut -f1)
+    echo -e "${YELLOW} Processing: ${target_city} (${target_version}) — file size: ${file_size}${NC}"
 
     # A. Asegurar que el esquema existe y tiene permisos base ANTES de importar
     docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE SCHEMA IF NOT EXISTS \"$target_version\"; GRANT USAGE ON SCHEMA \"$target_version\" TO web_anon;" > /dev/null
 
     # B. Importar con ogr2ogr
-    ogr2ogr -overwrite -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" \
+    echo -e "${BLUE} Importing into ${target_version}.${target_city}...${NC}"
+    ogr2ogr -progress \
+    -overwrite -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" \
     "$target_file" \
     -nlt PROMOTE_TO_MULTI \
     -nln "$target_city" \
