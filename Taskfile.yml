@@ -4,64 +4,118 @@ dotenv: ['.env']
 
 tasks:
   up:
-    desc: "Start all services"
+    desc: "Build images and start all containers (postgres, postgrest, geoserver, pgadmin, swagger)"
     cmds:
       - docker compose up --build -d
     silent: true
   down:
-    desc: "Stop all services"
+    desc: "Stop and remove all containers — data volumes are preserved"
     cmds:
       - docker compose down
     silent: true
   stop:
-    desc: "Stop all services"
+    desc: "Pause all containers without removing them — resume with 'task start'"
     cmds:
       - docker compose stop
     silent: true
   start:
-    desc: "Start all services"
+    desc: "Resume containers previously paused with 'task stop'"
     cmds:
       - docker compose start
     silent: true
   restart:
-    desc: "Restart all services"
+    desc: "Stop and restart all containers in sequence"
     cmds:
       - docker compose restart
     silent: true
   logs:
-    desc: "Show logs for all services"
+    desc: "Stream live logs from all containers — Ctrl+C to stop"
     cmds:
       - docker compose logs -f
     silent: true
   ps:
-    desc: "Show status of all services"
+    desc: "Show current status and health checks for all containers"
     cmds:
       - docker compose ps
     silent: true
   import:
-    desc: "📦 Full Pipeline: Import GPKG -> Publish GeoServer -> Reload API | 🧰 Usage: task import CITY=malta VERSION=v2 | 🌍 CITY options: austria, belgium, bulgaria, croatia, cyprus, czechia, denmark, estonia, finland, france, germany, greece, hungary, ireland, italy, latvia, lithuania, luxembourg, malta, netherlands, poland, portugal, romania, slovakia, slovenia, spain, sweden | Version options: v1, v2"
-    cmds:
-      - echo ">> Step 1: Importing data to PostGIS..."
-      - ./import_data.sh {{.CITY}} {{.VERSION}}
-      - echo ">> Step 2: Publishing to GeoServer via Python API..."
-      - task: geoserver:publish
-        vars: { CITY: '{{.CITY}}', VERSION: '{{.VERSION}}' }
-      - echo ">> Step 3: Refreshing PostgREST API cache..."
-      - task: api:reload
+    desc: "Full pipeline: import GPKG to PostGIS, publish to GeoServer, reload PostgREST — Usage: task import CITY=<country> VERSION=<v1|v2> (e.g. task import CITY=malta VERSION=v2)"
     vars:
       CITY: '{{.CITY | default "malta"}}'
       VERSION: '{{.VERSION | default "v2"}}'
+    cmds:
+      - echo "Step 1/3 - Importing data to PostGIS..."
+      - ./import_data.sh {{.CITY}} {{.VERSION}}
+      - echo "Step 2/3 - Publishing to GeoServer..."
+      - python3 gsconfig.py {{.CITY}} {{.VERSION}}
+      - echo "Step 3/3 - Refreshing PostgREST schema cache..."
+      - docker kill -s SIGUSR1 dbsm_postgrest
+      - echo "Pipeline complete."
 
   geoserver:publish:
-    desc: "🗺️ Publish an existing PostGIS table to GeoServer using Python REST API"
-    cmds:
-      - python3 gsconfig.py {{.CITY}} {{.VERSION}}
+    desc: "Publish a single PostGIS table as a GeoServer WMS/WFS layer — Usage: task geoserver:publish CITY=<country> VERSION=<v1|v2>"
     vars:
       CITY: '{{.CITY}}'
       VERSION: '{{.VERSION}}'
+    cmds:
+      - python3 gsconfig.py {{.CITY}} {{.VERSION}}
+
+  geoserver:init:
+    desc: "Create GeoServer workspace, PostGIS datastore and SLD style — safe to re-run — Usage: task geoserver:init VERSION=<v1|v2>"
+    vars:
+      VERSION: '{{.VERSION | default "v2"}}'
+    cmds:
+      - python3 gsconfig.py _init_only {{.VERSION}}
+
+  geoserver:status:
+    desc: "List all layers currently published in a GeoServer workspace — Usage: task geoserver:status VERSION=<v1|v2>"
+    vars:
+      VERSION: '{{.VERSION | default "v2"}}'
+    cmds:
+      - |
+        echo "Layers in workspace dbsm_{{.VERSION}}:"
+        curl -s -u ${GEOSERVER_ADMIN_USER}:${GEOSERVER_ADMIN_PASSWORD} \
+          "http://localhost:${GEOSERVER_PORT}/geoserver/rest/workspaces/dbsm_{{.VERSION}}/datastores/postgis_{{.VERSION}}/featuretypes.json" \
+          | python3 -c "
+        import sys, json
+        data = json.load(sys.stdin)
+        fts = data.get('featureTypes', {}).get('featureType', [])
+        if not fts:
+            print('  (none)')
+        else:
+            for ft in fts:
+                print(f'  - {ft[\"name\"]}')
+        print(f'Total: {len(fts)} layer(s)')
+        "
+
+  geoserver:verify:
+    desc: "Check that a published layer responds to WMS GetCapabilities — Usage: task geoserver:verify CITY=<country> VERSION=<v1|v2>"
+    vars:
+      CITY: '{{.CITY | default "malta"}}'
+      VERSION: '{{.VERSION | default "v2"}}'
+    cmds:
+      - |
+        echo "Checking WMS capabilities for dbsm_{{.VERSION}}:{{.CITY}} ..."
+        STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+          "http://localhost:${GEOSERVER_PORT}/geoserver/dbsm_{{.VERSION}}/ows?service=WMS&version=1.3.0&request=GetCapabilities")
+        if [ "$STATUS" = "200" ]; then
+          echo "  WMS GetCapabilities: OK (HTTP 200)"
+        else
+          echo "  ERROR: WMS GetCapabilities returned HTTP $STATUS"
+          exit 1
+        fi
+        LAYER_FOUND=$(curl -s \
+          "http://localhost:${GEOSERVER_PORT}/geoserver/dbsm_{{.VERSION}}/ows?service=WMS&version=1.3.0&request=GetCapabilities" \
+          | grep -c "<Name>dbsm_{{.VERSION}}:{{.CITY}}</Name>" || true)
+        if [ "$LAYER_FOUND" -gt "0" ]; then
+          echo "  Layer 'dbsm_{{.VERSION}}:{{.CITY}}' found in WMS capabilities."
+        else
+          echo "  WARNING: Layer 'dbsm_{{.VERSION}}:{{.CITY}}' not found in WMS capabilities."
+          exit 1
+        fi
 
   api:reload:
-    desc: "🔄 Reload PostgREST schema cache (makes new SQL views/functions visible in API)"
+    desc: "Signal PostgREST to reload its schema cache — run after adding new tables or SQL functions"
     cmds:
       - echo ">> Signalling PostgREST to reload schema cache..."
       - docker kill -s SIGUSR1 dbsm_postgrest
@@ -69,7 +123,7 @@ tasks:
     silent: false
 
   db:apply-sql:
-    desc: "📝 Apply SQL init files directly and reload API schema"
+    desc: "Re-apply all SQL init files (PostGIS setup, roles, API functions) and reload PostgREST — use after manual schema changes"
     cmds:
       - echo ">> Applying postgis.sql..."
       - docker exec -i {{.PG_CONTAINER}} psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < initdb/postgis.sql
@@ -82,7 +136,7 @@ tasks:
     silent: false
 
   db:apply-sql-safe:
-    desc: "🛡️ Apply SQL only if database already has tables"
+    desc: "Re-apply SQL init files only if data tables already exist — skips execution on an empty volume to avoid errors"
     cmds:
       - |
         TABLE_COUNT=$(docker exec {{.PG_CONTAINER}} psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} -tAc \
@@ -96,23 +150,23 @@ tasks:
     silent: false
 
   clean:soft:
-    desc: "🧹 Stop services and remove containers (keeps data volumes)"
+    desc: "Remove containers and networks but keep postgres and geoserver data volumes — imported data is preserved"
     cmds:
       - docker compose down --remove-orphans
     silent: false
 
   clean:nuke:
-    desc: "⚠️ DESTRUCTIVE — Full environment reset. Removes ALL volumes and data."
+    desc: "⚠️  DESTRUCTIVE: remove all containers, volumes and local data directories — all imported data will be lost"
     prompt: "This will destroy your database and geoserver data. Are you sure?"
     cmds:
       - echo ">> Destroying all services and volumes..."
       - docker compose down -v --remove-orphans
-      - rm -rf ./postgres_data || true 
+      - docker run --rm -v "$(pwd):/workspace" alpine rm -rf /workspace/postgres_data /workspace/geoserver_data
       - echo ">> Environment is completely clean. Run 'task up' to start fresh."
     silent: false
 
   db:reset:
-    desc: "♻️ Rebuild database from scratch (Alias for clean:nuke + up)"
+    desc: "⚠️  DESTRUCTIVE: destroy all data and restart the full stack from scratch — equivalent to clean:nuke + up"
     cmds:
       - task: clean:nuke
       - task: up

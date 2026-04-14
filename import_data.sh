@@ -77,7 +77,8 @@ import_and_grant() {
     "$target_file" \
     -nlt PROMOTE_TO_MULTI \
     -nln "$target_city" \
-    -lco SCHEMA="$target_version"
+    -lco SCHEMA="$target_version" \
+    -lco OVERWRITE=YES
 
     # Capturamos el error de ogr2ogr inmediatamente
     if [ $? -ne 0 ]; then
