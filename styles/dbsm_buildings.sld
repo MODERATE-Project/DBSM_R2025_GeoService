@@ -12,14 +12,20 @@
       <Abstract>Building footprints coloured by height: unknown (grey), low ≤6 m (yellow), medium ≤15 m (orange), tall ≤30 m (red), high-rise >30 m (dark red).</Abstract>
       <FeatureTypeStyle>
 
-        <!-- Unknown / null height -->
+        <!-- Unknown: null or zero height -->
         <Rule>
           <Name>unknown</Name>
           <Title>Unknown height</Title>
           <ogc:Filter>
-            <ogc:PropertyIsNull>
-              <ogc:PropertyName>height</ogc:PropertyName>
-            </ogc:PropertyIsNull>
+            <ogc:Or>
+              <ogc:PropertyIsNull>
+                <ogc:PropertyName>height</ogc:PropertyName>
+              </ogc:PropertyIsNull>
+              <ogc:PropertyIsEqualTo>
+                <ogc:PropertyName>height</ogc:PropertyName>
+                <ogc:Literal>0</ogc:Literal>
+              </ogc:PropertyIsEqualTo>
+            </ogc:Or>
           </ogc:Filter>
           <PolygonSymbolizer>
             <Fill>
@@ -33,16 +39,16 @@
           </PolygonSymbolizer>
         </Rule>
 
-        <!-- Low: height <= 6 m -->
+        <!-- Low: 0 < height <= 6 m -->
         <Rule>
           <Name>low</Name>
           <Title>Low (≤ 6 m)</Title>
           <ogc:Filter>
             <ogc:And>
-              <ogc:PropertyIsNotEqualTo>
+              <ogc:PropertyIsGreaterThan>
                 <ogc:PropertyName>height</ogc:PropertyName>
                 <ogc:Literal>0</ogc:Literal>
-              </ogc:PropertyIsNotEqualTo>
+              </ogc:PropertyIsGreaterThan>
               <ogc:PropertyIsLessThanOrEqualTo>
                 <ogc:PropertyName>height</ogc:PropertyName>
                 <ogc:Literal>6</ogc:Literal>

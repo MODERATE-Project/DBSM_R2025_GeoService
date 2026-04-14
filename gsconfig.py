@@ -147,8 +147,9 @@ def publish_layer(city: str):
     ft_url = f"{BASE_URL}/workspaces/{WS_NAME}/datastores/{DS_NAME}/featuretypes/{city}"
 
     if resource_exists(ft_url):
-        print(f"  Layer '{city}' already published — recalculating bbox.")
+        print(f"  Layer '{city}' already published — recalculating bbox and reassigning style.")
         _recalculate_bbox(city)
+        _assign_style(city)
         return
 
     ft_xml = f"""<featureType>
