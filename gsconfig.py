@@ -29,9 +29,10 @@ AUTH      = HTTPBasicAuth(GEOSERVER_USER, GEOSERVER_PASS)
 XML_HDR   = {'Content-type': 'text/xml'}
 JSON_HDR  = {'Content-type': 'application/json', 'Accept': 'application/json'}
 
-WS_NAME  = f"dbsm_{VERSION}"
-DS_NAME  = f"postgis_{VERSION}"
-STYLE_NAME = "dbsm_buildings"
+WS_NAME    = f"dbsm_{VERSION}"
+DS_NAME    = f"postgis_{VERSION}"
+STYLE_NAME = "dbsm_buildings" if VERSION == "v2" else "dbsm_buildings_v1"
+SLD_FILE   = os.path.join(os.path.dirname(os.path.abspath(__file__)), "styles", f"{STYLE_NAME}.sld")
 
 # ---------------------------------------------------------------------------
 # 3. Helpers
@@ -121,7 +122,7 @@ def ensure_style():
         print(f"  Style '{STYLE_NAME}' already exists.")
         return
 
-    sld_path = os.path.join(os.path.dirname(__file__), "styles", "dbsm_buildings.sld")
+    sld_path = SLD_FILE
     if not os.path.isfile(sld_path):
         print(f"  WARNING: SLD file not found at {sld_path}. Skipping style upload.")
         return
@@ -227,7 +228,7 @@ def update_layer_group(cities: list[str]):
         return
 
     layers_xml = "\n".join(
-        f"    <published type='layer'><name>{WS_NAME}:{c}</name></published>"
+        f'    <published type="layer"><name>{WS_NAME}:{c}</name></published>'
         for c in published
     )
     styles_xml = "\n".join(
@@ -248,21 +249,22 @@ def update_layer_group(cities: list[str]):
   </styles>
 </layerGroup>"""
 
-    exists = resource_exists(group_url)
-    if exists:
-        r = requests.put(group_url, auth=AUTH, headers=XML_HDR, data=group_xml)
-        verb = "updated"
-    else:
-        r = requests.post(
-            f"{BASE_URL}/workspaces/{WS_NAME}/layergroups",
-            auth=AUTH, headers=XML_HDR, data=group_xml
-        )
-        verb = "created"
+    # GeoServer 2.24.x does not reliably replace <publishables> on PUT.
+    # Delete and recreate to guarantee the layer list is always up to date.
+    if resource_exists(group_url):
+        del_r = requests.delete(group_url, auth=AUTH)
+        if del_r.status_code not in (200, 404):
+            print(f"  WARNING: Could not delete existing LayerGroup. HTTP {del_r.status_code}")
 
-    if r.status_code in (200, 201):
-        print(f"  LayerGroup '{group_name}' {verb} ({len(published)} layers).")
+    r = requests.post(
+        f"{BASE_URL}/workspaces/{WS_NAME}/layergroups",
+        auth=AUTH, headers=XML_HDR, data=group_xml
+    )
+
+    if r.status_code == 201:
+        print(f"  LayerGroup '{group_name}' rebuilt ({len(published)} layers: {', '.join(published)}).")
     else:
-        print(f"  WARNING: LayerGroup update returned HTTP {r.status_code}: {r.text}")
+        print(f"  WARNING: LayerGroup creation returned HTTP {r.status_code}: {r.text}")
 
 
 # ---------------------------------------------------------------------------
