@@ -1,7 +1,0 @@
-CREATE ROLE web_anon NOLOGIN;
-GRANT USAGE ON SCHEMA v1 TO web_anon;
-GRANT SELECT ON ALL TABLES IN SCHEMA v1 TO web_anon;
-
-
-CREATE ROLE authenticator NOINHERIT LOGIN PASSWORD 'postgres';
-GRANT web_anon TO authenticator;

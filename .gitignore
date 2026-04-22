@@ -1,7 +1,8 @@
 
 
 # Virtual environments
-# .env in a production environment will be deleted the comment
+.env
+.env.local
 .venv
 venv/
 env/
