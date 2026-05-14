@@ -258,7 +258,7 @@ def update_layer_group(cities: list[str]):
 
     r = requests.post(
         f"{BASE_URL}/workspaces/{WS_NAME}/layergroups",
-        auth=AUTH, headers=XML_HDR, data=group_xml
+        auth=AUTH, headers=XML_HDR, data=group_xml.encode("utf-8")
     )
 
     if r.status_code == 201:
