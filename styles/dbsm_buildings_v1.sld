@@ -9,11 +9,12 @@
     <Name>dbsm_buildings_v1</Name>
     <UserStyle>
       <Title>DBSM Buildings v1 (R2023)</Title>
-      <Abstract>Building footprints from DBSM R2023. Flat style — no height attribute available in this version.</Abstract>
+      <Abstract>Building footprints from DBSM R2023. Flat style — no height attribute available in this version. Only rendered at scales finer than 1:100 000.</Abstract>
       <FeatureTypeStyle>
         <Rule>
           <Name>building</Name>
           <Title>Building</Title>
+          <MaxScaleDenominator>100000</MaxScaleDenominator>
           <PolygonSymbolizer>
             <Fill>
               <CssParameter name="fill">#FFCC88</CssParameter>

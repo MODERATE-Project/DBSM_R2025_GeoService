@@ -67,6 +67,37 @@ tasks:
     cmds:
       - python3 gsconfig.py _init_only {{.VERSION}}
 
+  geoserver:update-style:
+    desc: "Push the local SLD file to GeoServer, overwriting the current style — Usage: task geoserver:update-style VERSION=<v1|v2>"
+    vars:
+      VERSION: '{{.VERSION | default "v2"}}'
+    cmds:
+      - python3 gsconfig.py _init_only {{.VERSION}}
+
+  geoserver:gwc-seed:
+    desc: "Seed GeoWebCache tiles for a layer (zoom 10-14 by default, async) — Usage: task geoserver:gwc-seed CITY=<country> VERSION=<v1|v2> [GWC_ZOOM_START=10] [GWC_ZOOM_STOP=16]"
+    vars:
+      CITY: '{{.CITY}}'
+      VERSION: '{{.VERSION | default "v2"}}'
+    cmds:
+      - python3 gsconfig.py {{.CITY}} {{.VERSION}} seed-only
+
+  geoserver:gwc-status:
+    desc: "Show GeoWebCache seeding progress for a layer — Usage: task geoserver:gwc-status CITY=<country> VERSION=<v1|v2>"
+    vars:
+      CITY: '{{.CITY}}'
+      VERSION: '{{.VERSION | default "v2"}}'
+    cmds:
+      - python3 gsconfig.py {{.CITY}} {{.VERSION}} gwc-status
+
+  geoserver:gwc-kill:
+    desc: "Cancel all running GeoWebCache seed jobs for a layer — Usage: task geoserver:gwc-kill CITY=<country> VERSION=<v1|v2>"
+    vars:
+      CITY: '{{.CITY}}'
+      VERSION: '{{.VERSION | default "v2"}}'
+    cmds:
+      - python3 gsconfig.py {{.CITY}} {{.VERSION}} gwc-kill
+
   geoserver:status:
     desc: "List all layers currently published in a GeoServer workspace — Usage: task geoserver:status VERSION=<v1|v2>"
     vars:
@@ -126,11 +157,11 @@ tasks:
     desc: "Re-apply all SQL init files (PostGIS setup, roles, API functions) and reload PostgREST — use after manual schema changes"
     cmds:
       - echo ">> Applying postgis.sql..."
-      - docker exec -i {{.PG_CONTAINER}} psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < initdb/postgis.sql
-      - echo ">> Applying postgrest.sql..."
-      - docker exec -i {{.PG_CONTAINER}} psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < initdb/postgrest.sql
-      - echo ">> Applying api_functions.sql..."
-      - docker exec -i {{.PG_CONTAINER}} psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < initdb/api_functions.sql
+      - docker exec -i {{.PG_CONTAINER}} psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < initdb/01_postgis.sql
+      - echo ">> Applying 02_postgrest.sh..."
+      - docker exec {{.PG_CONTAINER}} bash /docker-entrypoint-initdb.d/02_postgrest.sh
+      - echo ">> Applying 03_api_functions.sql..."
+      - docker exec -i {{.PG_CONTAINER}} psql -U {{.POSTGRES_USER}} -d {{.POSTGRES_DB}} < initdb/03_api_functions.sql
       - echo ">> All SQL files applied successfully."
       - task: api:reload # <-- Reloads the API automatically
     silent: false

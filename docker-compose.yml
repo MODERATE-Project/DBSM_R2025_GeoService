@@ -14,6 +14,22 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
+      PGRST_DB_AUTHENTICATOR_PASSWORD: ${PGRST_DB_AUTHENTICATOR_PASSWORD}
+    # Tuning parameters — memory values are configurable via .env.
+    # Set shared_buffers to ~25% of available RAM; effective_cache_size to ~75%.
+    # random_page_cost=1.1 and effective_io_concurrency=200 assume SSD storage.
+    command: >
+      postgres
+      -c shared_buffers=${PG_SHARED_BUFFERS:-512MB}
+      -c work_mem=${PG_WORK_MEM:-64MB}
+      -c maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-256MB}
+      -c effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-2GB}
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=32MB
+      -c default_statistics_target=250
+      -c max_parallel_workers_per_gather=4
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}" ]
       interval: 10s
@@ -22,7 +38,7 @@ services:
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
       - ./initdb/01_postgis.sql:/docker-entrypoint-initdb.d/01_postgis.sql
-      - ./initdb/02_postgrest.sql:/docker-entrypoint-initdb.d/02_postgrest.sql
+      - ./initdb/02_postgrest.sh:/docker-entrypoint-initdb.d/02_postgrest.sh
       - ./initdb/03_api_functions.sql:/docker-entrypoint-initdb.d/03_api_functions.sql
     networks:
       - dbsm-geoservice-net
@@ -102,7 +118,6 @@ services:
       start_period: 1m
     volumes:
       - ./geoserver_data:/opt/geoserver/data_dir
-      - ./initdb/geoserver.xml:/opt/geoserver/data_dir/security/geoserver.xml
     networks:
       - dbsm-geoservice-net
 
