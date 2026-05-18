@@ -283,6 +283,53 @@ END;
 $$;
 
 
+-- 8. Construction epoch distribution for a country
+-- Returns building counts per period, with human-readable labels and percentages.
+-- POST /rpc/age_distribution
+-- Body: {"country_table":"malta"}
+CREATE OR REPLACE FUNCTION v2.age_distribution(country_table text)
+RETURNS TABLE (
+    epoch_code    bigint,
+    epoch_label   text,
+    building_count bigint,
+    pct_total     double precision
+)
+LANGUAGE plpgsql STABLE SECURITY DEFINER SET search_path = public, v2 AS $$
+BEGIN
+    RETURN QUERY EXECUTE format(
+        $sql$
+        WITH counts AS (
+            SELECT
+                epoch::bigint AS epoch_code,
+                COUNT(*)::bigint AS building_count
+            FROM v2.%I
+            GROUP BY epoch
+        ),
+        total AS (
+            SELECT SUM(building_count) AS n FROM counts
+        )
+        SELECT
+            c.epoch_code,
+            CASE c.epoch_code
+                WHEN 0 THEN 'Unknown'
+                WHEN 1 THEN 'Before 1980'
+                WHEN 2 THEN '1980–1989'
+                WHEN 3 THEN '1990–1999'
+                WHEN 4 THEN '2000–2009'
+                WHEN 5 THEN '2010+'
+                ELSE 'Other'
+            END AS epoch_label,
+            c.building_count,
+            round((c.building_count::double precision / NULLIF(t.n, 0) * 100)::numeric, 2)::double precision AS pct_total
+        FROM counts c, total t
+        ORDER BY c.epoch_code
+        $sql$,
+        country_table
+    );
+END;
+$$;
+
+
 -- ============================================================
 -- Execution Permissions
 -- ============================================================
