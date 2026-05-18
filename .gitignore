@@ -15,3 +15,11 @@ postgres_data/
 
 # Geoserver data
 geoserver_data/
+
+# QGIS
+qgis_project/*.gpkg
+qgis_project/*.gpkg-shm
+qgis_project/*.gpkg-wal
+qgis_project/*.geojson
+qgis_project/*.qgs~
+qgis_project/*_attachments.zip
