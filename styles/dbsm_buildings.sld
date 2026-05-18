@@ -9,13 +9,14 @@
     <Name>dbsm_buildings</Name>
     <UserStyle>
       <Title>DBSM Buildings — Height Classification</Title>
-      <Abstract>Building footprints coloured by height: unknown (grey), low ≤6 m (yellow), medium ≤15 m (orange), tall ≤30 m (red), high-rise >30 m (dark red).</Abstract>
+      <Abstract>Building footprints coloured by height: unknown (grey), low ≤6 m (yellow), medium ≤15 m (orange), tall ≤30 m (red), high-rise >30 m (dark red). Only rendered at scales finer than 1:100 000 to avoid querying millions of polygons at regional/national zoom levels.</Abstract>
       <FeatureTypeStyle>
 
         <!-- Unknown: null or zero height -->
         <Rule>
           <Name>unknown</Name>
           <Title>Unknown height</Title>
+          <MaxScaleDenominator>100000</MaxScaleDenominator>
           <ogc:Filter>
             <ogc:Or>
               <ogc:PropertyIsNull>
@@ -43,6 +44,7 @@
         <Rule>
           <Name>low</Name>
           <Title>Low (≤ 6 m)</Title>
+          <MaxScaleDenominator>100000</MaxScaleDenominator>
           <ogc:Filter>
             <ogc:And>
               <ogc:PropertyIsGreaterThan>
@@ -71,6 +73,7 @@
         <Rule>
           <Name>medium</Name>
           <Title>Medium (6–15 m)</Title>
+          <MaxScaleDenominator>100000</MaxScaleDenominator>
           <ogc:Filter>
             <ogc:And>
               <ogc:PropertyIsGreaterThan>
@@ -99,6 +102,7 @@
         <Rule>
           <Name>tall</Name>
           <Title>Tall (15–30 m)</Title>
+          <MaxScaleDenominator>100000</MaxScaleDenominator>
           <ogc:Filter>
             <ogc:And>
               <ogc:PropertyIsGreaterThan>
@@ -127,6 +131,7 @@
         <Rule>
           <Name>highrise</Name>
           <Title>High-rise (&gt; 30 m)</Title>
+          <MaxScaleDenominator>100000</MaxScaleDenominator>
           <ogc:Filter>
             <ogc:PropertyIsGreaterThan>
               <ogc:PropertyName>height</ogc:PropertyName>
