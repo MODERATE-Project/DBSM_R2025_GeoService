@@ -46,15 +46,15 @@ Built as a Proof of Concept for the [MODERATE](https://github.com/MODERATE-Proje
 ```
 ┌─ Docker Compose (dbsm-geoservice-net) ────────────────────────┐
 │                                                                │
-│   PostgreSQL 16 + PostGIS 3          :5432                    │
+│   PostgreSQL 16 + PostGIS 3          :3500                    │
 │              │                                                 │
-│              ├──► PostgREST v12.2.8  :3000                    │
+│              ├──► PostgREST v12.2.8  :3501                    │
 │              │         │                                       │
-│              │         └──► Swagger UI v5.21.0  :8082         │
+│              │         └──► Swagger UI v5.21.0  :3504         │
 │              │                                                 │
-│              ├──► GeoServer 2.24.2   :8081                    │
+│              ├──► GeoServer 2.24.2   :3503                    │
 │              │                                                 │
-│              └──► PgAdmin 4          :5050                    │
+│              └──► PgAdmin 4          :3502                    │
 │                                                                │
 └────────────────────────────────────────────────────────────────┘
 ```
@@ -358,7 +358,7 @@ docker logs dbsm_postgres   # or dbsm_geoserver, dbsm_postgrest, etc.
 Verify the API responds:
 
 ```bash
-curl -s http://localhost:3000/ | python3 -m json.tool | head -10
+curl -s http://localhost:3501/ | python3 -m json.tool | head -10
 # Should return the PostgREST OpenAPI description
 ```
 
@@ -436,7 +436,7 @@ Verify the import was successful:
 task geoserver:verify CITY=malta VERSION=v2
 
 # Check the API returns data
-curl -s -X POST http://localhost:3000/rpc/country_statistics \
+curl -s -X POST http://localhost:3501/rpc/country_statistics \
      -H "Content-Type: application/json" \
      -d '{"country_table":"malta"}'
 ```
@@ -452,7 +452,7 @@ task import CITY=italy VERSION=v2
 Or bulk-import all `.gpkg` files present in `./datasets/` at once:
 
 ```bash
-task import CITY=all VERSION=v2
+task import:all VERSION=v2
 ```
 
 In `CITY=all` mode the schema is inferred from the filename (`dbsm-v2-…` → schema `v2`, `dbsm-v1-…` → schema `v1`). The `VERSION` argument only controls which GeoServer workspace is used for the publish step.
@@ -539,16 +539,16 @@ See the full [QGIS — Desktop Client Guide](#qgis--desktop-client-guide) sectio
 
 ## Service Access
 
-All services are deployed on `localhost` by default. Ports are defined in `.env` and can be changed before the first startup.
+All services are deployed on `localhost` by default. Ports are defined in `.env` and can be changed before the first startup. For remote access, set `SERVER_HOST` in `.env` to the server's IP address or hostname (see [Environment Variables Reference](#environment-variables-reference)).
 
 | Service | URL / connection | Default credentials | Purpose |
 |---------|-----------------|---------------------|---------|
-| **PostgREST API** | http://localhost:3000 | Public — no authentication | REST API for querying building data |
-| **Swagger UI** | http://localhost:8082 | Public — no authentication | Interactive API documentation and testing |
-| **GeoServer** | http://localhost:8081/geoserver/web | `admin` / `geoserver` | WMS/WFS map server, layer management |
-| **PgAdmin** | http://localhost:5050 | `user@domain.com` / `postgres` | PostgreSQL web GUI |
-| **PostgreSQL** | `localhost:5432`, db `dbsm` | `dbsm_admin` / `postgres` | Direct database access (psql, pgAdmin, etc.) |
-| **QGIS project** | `localhost:5432`, db `dbsm` | `dbsm_admin` / `postgres` | Desktop client — connects directly to PostGIS |
+| **PostgREST API** | http://localhost:3501 | Public — no authentication | REST API for querying building data |
+| **Swagger UI** | http://localhost:3504 | Public — no authentication | Interactive API documentation and testing |
+| **GeoServer** | http://localhost:3503/geoserver/web | `admin` / `geoserver` | WMS/WFS map server, layer management |
+| **PgAdmin** | http://localhost:3502 | `user@domain.com` / `postgres` | PostgreSQL web GUI |
+| **PostgreSQL** | `localhost:3500`, db `dbsm` | `dbsm_admin` / `postgres` | Direct database access (psql, pgAdmin, etc.) |
+| **QGIS project** | `localhost:3500`, db `dbsm` | `dbsm_admin` / `postgres` | Desktop client — connects directly to PostGIS |
 
 > All credentials shown are the defaults from `.env.default`. If you edited `.env` before starting, use those values instead. Credentials are **never stored in the repository** — only `.env.default` (with placeholder-level defaults) is committed.
 >
@@ -558,14 +558,21 @@ All services are deployed on `localhost` by default. Ports are defined in `.env`
 
 ## Environment Variables Reference
 
-All variables live in `.env`. The file is loaded by both Docker Compose and the Taskfile automatically.
+All variables live in `.env`. The file is loaded by both Docker Compose and the Taskfile automatically. Copy `.env.default` to `.env` and edit before the first `task up`.
+
+### Stack
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `STACK_NAME` | `dbsm-geoservice` | Docker Compose project name and network prefix |
+| `SERVER_HOST` | `localhost` | Public hostname or IP used by Swagger UI to reach the API. Set to the server's address when deploying on a shared or remote host |
 
 ### PostgreSQL
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PG_VERSION` | `16` | PostgreSQL image version |
-| `PG_PORT` | `5432` | Host port mapped to the container's 5432 |
+| `PG_PORT` | `3500` | Host port mapped to the container's 5432 |
 | `PG_HOST` | `localhost` | Host used by `import_data.sh` to reach PostgreSQL |
 | `PG_CONTAINER` | `dbsm_postgres` | Docker container name |
 | `POSTGRES_USER` | `dbsm_admin` | Superuser created on DB init |
@@ -577,7 +584,7 @@ All variables live in `.env`. The file is loaded by both Docker Compose and the 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PGADMIN_VERSION` | `9.2` | PgAdmin image version |
-| `PGADMIN_PORT` | `5050` | Host port for the PgAdmin web UI |
+| `PGADMIN_PORT` | `3502` | Host port for the PgAdmin web UI |
 | `PGADMIN_DEFAULT_EMAIL` | `user@domain.com` | Login e-mail for PgAdmin — **change this** |
 | `PGADMIN_DEFAULT_PASSWORD` | `postgres` | PgAdmin login password — **change this** |
 
@@ -586,7 +593,7 @@ All variables live in `.env`. The file is loaded by both Docker Compose and the 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `POSTGREST_VERSION` | `v12.2.8` | PostgREST image version |
-| `POSTGREST_PORT` | `3000` | Host port for the REST API |
+| `POSTGREST_PORT` | `3501` | Host port for the REST API |
 | `PGRST_DB_AUTHENTICATOR_PASSWORD` | `postgres` | Password for the `authenticator` database role. **Must match the value stored in the database** (set during `02_postgrest.sh` init). Change both together using `task db:apply-sql` |
 | `PGRST_DB_ANON_ROLE` | `web_anon` | Database role used for unauthenticated API requests |
 | `PGRST_DB_SCHEMA` | `v2` | Schema exposed as REST resources (direct table access) |
@@ -597,14 +604,14 @@ All variables live in `.env`. The file is loaded by both Docker Compose and the 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `SWAGGER_VERSION` | `v5.21.0` | Swagger UI image version |
-| `SWAGGER_PORT` | `8082` | Host port for the Swagger UI |
+| `SWAGGER_PORT` | `3504` | Host port for the Swagger UI |
 
 ### GeoServer
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GEOSERVER_VERSION` | `2.24.2` | GeoServer image version |
-| `GEOSERVER_PORT` | `8081` | Host port for GeoServer |
+| `GEOSERVER_PORT` | `3503` | Host port for GeoServer |
 | `GEOSERVER_ADMIN_USER` | `admin` | GeoServer admin username |
 | `GEOSERVER_ADMIN_PASSWORD` | `geoserver` | GeoServer admin password — **change this** |
 
@@ -669,7 +676,7 @@ docker restart dbsm_postgrest
 
 **`initdb/03_api_functions.sql`** — Seven PL/pgSQL functions exposed as HTTP POST endpoints by PostgREST. All functions use `SECURITY DEFINER` with an explicit `search_path` to prevent privilege escalation.
 
-**`qgis_project/dbsm_demo.qgs`** — Ready-to-open QGIS 3 project (saved with 3.44). Connects to `localhost:5432` / `dbsm` and provides pre-configured layers and Python actions for interactive exploration.
+**`qgis_project/dbsm_demo.qgs`** — Ready-to-open QGIS 3 project (saved with 3.44). Connects to `localhost:3500` / `dbsm` and provides pre-configured layers and Python actions for interactive exploration.
 
 ---
 
@@ -699,7 +706,7 @@ This runs three steps in sequence:
 ### 3. Bulk Import
 
 ```bash
-task import CITY=all VERSION=v2
+task import:all VERSION=v2
 ```
 
 Iterates over all `.gpkg` files in `./datasets/`. Schema (`v1` or `v2`) is inferred from the filename prefix. The `VERSION` argument controls only the GeoServer publish step.
@@ -756,16 +763,16 @@ task db:reset   # WARNING: destroys all imported data and volumes
 
 ## API Reference
 
-Base URL: `http://localhost:3000`
+Base URL: `http://localhost:3501`
 
 PostgREST exposes two types of endpoints:
 
 - **RPC functions** — `POST /rpc/<function_name>` — custom queries defined in `initdb/03_api_functions.sql`
 - **Direct table access** — `GET /<table_name>` — auto-generated from the `v2` schema (configured by `PGRST_DB_SCHEMA`)
 
-Interactive documentation and live testing: **Swagger UI at http://localhost:8082**
+Interactive documentation and live testing: **Swagger UI at http://localhost:3504**
 
-The OpenAPI specification is auto-generated by PostgREST at `http://localhost:3000/openapi.json`.
+The OpenAPI specification is auto-generated by PostgREST at `http://localhost:3501/openapi.json`.
 
 ### HTTP conventions
 
@@ -809,7 +816,7 @@ Returns buildings within a geographic bounding box. Input coordinates are **WGS8
 **Response columns:** `fid`, `unique_id`, `source`, `area`, `height`, `use`, `geom`
 
 ```bash
-curl -s -X POST http://localhost:3000/rpc/buildings_in_bbox \
+curl -s -X POST http://localhost:3501/rpc/buildings_in_bbox \
      -H "Content-Type: application/json" \
      -d '{"country_table":"malta","min_lon":14.507,"min_lat":35.894,"max_lon":14.516,"max_lat":35.901}'
 ```
@@ -833,7 +840,7 @@ Returns buildings within a radius around a GPS coordinate, ordered by distance a
 **Response columns:** `fid`, `unique_id`, `area`, `height`, `use`, `distance_m`, `geom`
 
 ```bash
-curl -s -X POST http://localhost:3000/rpc/buildings_nearby \
+curl -s -X POST http://localhost:3501/rpc/buildings_nearby \
      -H "Content-Type: application/json" \
      -d '{"country_table":"malta","lat":35.8989,"lon":14.5146,"radius_m":300}'
 ```
@@ -980,7 +987,7 @@ Returns the number of buildings per construction period for a country, with huma
 ```
 
 ```bash
-curl -s -X POST http://localhost:3000/rpc/age_distribution \
+curl -s -X POST http://localhost:3501/rpc/age_distribution \
   -H "Content-Type: application/json" \
   -d '{"country_table": "spain"}'
 ```
@@ -993,16 +1000,16 @@ PostgREST exposes each country table in the `v2` schema as a REST resource. This
 
 ```bash
 # First 10 buildings in Malta
-GET http://localhost:3000/malta?limit=10
+GET http://localhost:3501/malta?limit=10
 
 # Buildings taller than 20 m
-GET http://localhost:3000/spain?height=gt.20&limit=100
+GET http://localhost:3501/spain?height=gt.20&limit=100
 
 # Residential buildings, only specific columns
-GET http://localhost:3000/malta?use=eq.1&select=unique_id,area,height&limit=50
+GET http://localhost:3501/malta?use=eq.1&select=unique_id,area,height&limit=50
 
 # Buildings with area between 50 and 200 m²
-GET http://localhost:3000/malta?area=gte.50&area=lte.200&limit=100
+GET http://localhost:3501/malta?area=gte.50&area=lte.200&limit=100
 ```
 
 PostgREST [filtering operators](https://docs.postgrest.org/en/v12/references/api/tables_views.html#operators): `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `like`, `is`, `in`, and more.
@@ -1013,18 +1020,18 @@ PostgREST [filtering operators](https://docs.postgrest.org/en/v12/references/api
 
 ## Swagger UI — Verified Call Examples
 
-Open **http://localhost:8082**, locate the function in the list, click **Try it out**, paste the body shown, and click **Execute**.
+Open **http://localhost:3504**, locate the function in the list, click **Try it out**, paste the body shown, and click **Execute**.
 
 > **Geometry and Swagger rendering:** Functions that return a `geom` column can produce very large responses. To exclude geometry in Swagger UI, append `?select=` to the request URL:
 > ```
-> http://127.0.0.1:3000/rpc/buildings_in_bbox?select=fid,unique_id,source,area,height,use
+> http://localhost:3501/rpc/buildings_in_bbox?select=fid,unique_id,source,area,height,use
 > ```
 
 All examples below have been tested with Malta, Luxembourg, Spain and Italy imported.
 
 ### `buildings_in_bbox`
 
-**Swagger URL:** `http://127.0.0.1:3000/rpc/buildings_in_bbox?select=fid,unique_id,source,area,height,use`
+**Swagger URL:** `http://localhost:3501/rpc/buildings_in_bbox?select=fid,unique_id,source,area,height,use`
 
 **Malta — Valletta city block (~50 buildings)**
 ```json
@@ -1038,7 +1045,7 @@ All examples below have been tested with Malta, Luxembourg, Spain and Italy impo
 
 ### `buildings_nearby`
 
-**Swagger URL:** `http://127.0.0.1:3000/rpc/buildings_nearby?select=fid,unique_id,area,height,use,distance_m`
+**Swagger URL:** `http://localhost:3501/rpc/buildings_nearby?select=fid,unique_id,area,height,use,distance_m`
 
 **Malta — Valletta centre, 150 m radius**
 ```json
@@ -1058,7 +1065,7 @@ All examples below have been tested with Malta, Luxembourg, Spain and Italy impo
 
 ### `buildings_by_use`
 
-**Swagger URL:** `http://127.0.0.1:3000/rpc/buildings_by_use?select=fid,unique_id,area,height`
+**Swagger URL:** `http://localhost:3501/rpc/buildings_by_use?select=fid,unique_id,area,height`
 
 **Malta — residential:**
 ```json
@@ -1086,7 +1093,7 @@ Requires both v1 and v2 imported for the same country.
 
 ### `buildings_similar`
 
-**Swagger URL:** `http://127.0.0.1:3000/rpc/buildings_similar?select=fid,unique_id,area,height,use,distance_m,similarity`
+**Swagger URL:** `http://localhost:3501/rpc/buildings_similar?select=fid,unique_id,area,height,use,distance_m,similarity`
 
 ```json
 {
@@ -1173,13 +1180,13 @@ GeoServer publishes the PostGIS tables as OGC-compliant WMS and WFS services.
 ```
 # WMS — view maps in any GIS client
 WMS GetCapabilities (v2):
-http://localhost:8081/geoserver/dbsm_v2/ows?service=WMS&version=1.3.0&request=GetCapabilities
+http://localhost:3503/geoserver/dbsm_v2/ows?service=WMS&version=1.3.0&request=GetCapabilities
 
 WFS GetCapabilities (v2):
-http://localhost:8081/geoserver/dbsm_v2/ows?service=WFS&version=2.0.0&request=GetCapabilities
+http://localhost:3503/geoserver/dbsm_v2/ows?service=WFS&version=2.0.0&request=GetCapabilities
 
 # Direct WMS map image (example — Malta at country scale)
-http://localhost:8081/geoserver/dbsm_v2/ows?service=WMS&version=1.3.0&request=GetMap
+http://localhost:3503/geoserver/dbsm_v2/ows?service=WMS&version=1.3.0&request=GetMap
   &layers=dbsm_v2:malta
   &bbox=3427938,1370068,3463898,1401302
   &width=800&height=600
@@ -1510,7 +1517,7 @@ The file name does not match the expected pattern. For v2 files downloaded from 
 mv datasets/dbsm-malta-R2025.gpkg datasets/dbsm-v2-malta-R2025.gpkg
 ```
 
-**Problem: GeoServer web UI is unreachable at http://localhost:8081**
+**Problem: GeoServer web UI is unreachable at http://localhost:3503**
 
 GeoServer takes 60–120 seconds to start. Check its status with:
 ```bash
