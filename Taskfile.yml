@@ -1,6 +1,6 @@
 version: '3'
 
-dotenv: ['.env']
+dotenv: ['.env', '.env.local']
 
 tasks:
   up:
@@ -49,8 +49,36 @@ tasks:
       - echo "Step 2/3 - Publishing to GeoServer..."
       - python3 gsconfig.py {{.CITY}} {{.VERSION}}
       - echo "Step 3/3 - Refreshing PostgREST schema cache..."
-      - docker kill -s SIGUSR1 dbsm_postgrest
+      - docker kill -s SIGUSR1 ${POSTGREST_CONTAINER}
       - echo "Pipeline complete."
+
+  import:all:
+    desc: "Import all countries for a given version — Usage: task import:all VERSION=<v1|v2> (default: v2)"
+    vars:
+      VERSION: '{{.VERSION | default "v2"}}'
+    cmds:
+      - |
+        FOUND=0
+        for FILE in datasets/dbsm-{{.VERSION}}-*.gpkg; do
+          [ -f "$FILE" ] || continue
+          FOUND=$((FOUND+1))
+          CITY=$(basename "$FILE" | cut -d'-' -f3)
+          echo ""
+          echo "=== [$FOUND] $CITY ({{.VERSION}}) ==="
+          echo "  [1/2] Importing to PostGIS..."
+          ./import_data.sh "$CITY" "{{.VERSION}}"
+          echo "  [2/2] Publishing to GeoServer..."
+          python3 gsconfig.py "$CITY" "{{.VERSION}}"
+        done
+        if [ "$FOUND" -eq 0 ]; then
+          echo "No datasets found for version {{.VERSION}} in datasets/"
+          exit 1
+        fi
+        echo ""
+        echo "Refreshing PostgREST schema cache..."
+        docker kill -s SIGUSR1 ${POSTGREST_CONTAINER}
+        echo ""
+        echo "Done. $FOUND countries imported."
 
   geoserver:publish:
     desc: "Publish a single PostGIS table as a GeoServer WMS/WFS layer — Usage: task geoserver:publish CITY=<country> VERSION=<v1|v2>"
@@ -135,13 +163,14 @@ tasks:
           echo "  ERROR: WMS GetCapabilities returned HTTP $STATUS"
           exit 1
         fi
+        # GeoServer workspace-specific WMS endpoint returns unqualified layer names (e.g. "malta", not "dbsm_v2:malta")
         LAYER_FOUND=$(curl -s \
           "http://localhost:${GEOSERVER_PORT}/geoserver/dbsm_{{.VERSION}}/ows?service=WMS&version=1.3.0&request=GetCapabilities" \
-          | grep -c "<Name>dbsm_{{.VERSION}}:{{.CITY}}</Name>" || true)
+          | grep -c "<Name>{{.CITY}}</Name>" || true)
         if [ "$LAYER_FOUND" -gt "0" ]; then
-          echo "  Layer 'dbsm_{{.VERSION}}:{{.CITY}}' found in WMS capabilities."
+          echo "  Layer '{{.CITY}}' found in WMS capabilities."
         else
-          echo "  WARNING: Layer 'dbsm_{{.VERSION}}:{{.CITY}}' not found in WMS capabilities."
+          echo "  WARNING: Layer '{{.CITY}}' not found in WMS capabilities."
           exit 1
         fi
 
@@ -149,7 +178,7 @@ tasks:
     desc: "Signal PostgREST to reload its schema cache — run after adding new tables or SQL functions"
     cmds:
       - echo ">> Signalling PostgREST to reload schema cache..."
-      - docker kill -s SIGUSR1 dbsm_postgrest
+      - docker kill -s SIGUSR1 ${POSTGREST_CONTAINER}
       - echo ">> API Schema reloaded!"
     silent: false
 
@@ -203,4 +232,397 @@ tasks:
       - task: up
       - echo ">> Stack restarted. Re-import your data with 'task import'"
     silent: false
+
+  # ─── Test suite ─────────────────────────────────────────────────────────────
+
+  test:services:
+    desc: "Check that all 5 containers are running and report health status"
+    cmds:
+      - |
+        FAIL=0
+        for NAME in ${PG_CONTAINER} ${POSTGREST_CONTAINER} ${GEOSERVER_CONTAINER} ${PGADMIN_CONTAINER} ${SWAGGER_CONTAINER}; do
+          INFO=$(docker inspect "$NAME" 2>/dev/null)
+          if [ -z "$INFO" ]; then
+            echo "  FAIL  $NAME — container not found"
+            FAIL=$((FAIL+1))
+          else
+            STATUS=$(echo "$INFO" | python3 -c "import sys,json; d=json.load(sys.stdin)[0]; print(d['State']['Status'])")
+            HEALTH=$(echo "$INFO" | python3 -c "
+        import sys,json
+        d=json.load(sys.stdin)[0]
+        h=d['State'].get('Health')
+        print(h['Status'] if h else 'no-healthcheck')
+        ")
+            if [ "$STATUS" = "running" ]; then
+              echo "  OK    $NAME  ($STATUS / $HEALTH)"
+            else
+              echo "  FAIL  $NAME  ($STATUS / $HEALTH)"
+              FAIL=$((FAIL+1))
+            fi
+          fi
+        done
+        echo ""
+        if [ "$FAIL" -eq 0 ]; then
+          echo "All containers running."
+        else
+          echo "$FAIL container(s) not running."
+          exit 1
+        fi
+
+  test:postgres:
+    desc: "Verify PostgreSQL — connectivity, schemas, roles, tables, and API functions"
+    cmds:
+      - |
+        echo "=== connectivity & version ==="
+        docker exec ${PG_CONTAINER} psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} \
+          -tAc "SELECT version();"
+
+        echo ""
+        echo "=== schemas present ==="
+        docker exec ${PG_CONTAINER} psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} \
+          -tAc "SELECT schema_name FROM information_schema.schemata
+                WHERE schema_name IN ('public','v1','v2') ORDER BY 1;"
+
+        echo ""
+        echo "=== PostgREST roles ==="
+        docker exec ${PG_CONTAINER} psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} \
+          -c "SELECT rolname, rolcanlogin FROM pg_roles
+              WHERE rolname IN ('web_anon','authenticator') ORDER BY rolname;"
+
+        echo ""
+        echo "=== imported tables (v2) ==="
+        docker exec ${PG_CONTAINER} psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} \
+          -c "SELECT table_name,
+                     pg_size_pretty(pg_total_relation_size('v2.'||table_name)) AS size
+              FROM information_schema.tables
+              WHERE table_schema='v2' AND table_type='BASE TABLE'
+              ORDER BY table_name;"
+
+        echo ""
+        echo "=== API functions (v2) ==="
+        docker exec ${PG_CONTAINER} psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} \
+          -tAc "SELECT routine_name FROM information_schema.routines
+                WHERE routine_schema='v2' ORDER BY routine_name;"
+
+  test:api:
+    desc: "Verify PostgREST — health, OpenAPI spec, and HTTP access for each imported country table"
+    cmds:
+      - |
+        API="http://localhost:${POSTGREST_PORT}"
+        FAIL=0
+
+        echo "=== PostgREST health ==="
+        STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$API/")
+        if [ "$STATUS" = "200" ]; then
+          echo "  OK    GET /  →  HTTP $STATUS"
+        else
+          echo "  FAIL  GET /  →  HTTP $STATUS"
+          FAIL=$((FAIL+1))
+        fi
+
+        echo ""
+        echo "=== exposed endpoints (OpenAPI) ==="
+        curl -s "$API/" | python3 -c "
+        import sys, json
+        try:
+            paths = sorted(json.load(sys.stdin).get('paths', {}).keys())
+            for p in paths:
+                print(f'  {p}')
+            print(f'  Total: {len(paths)} endpoint(s)')
+        except Exception as e:
+            print(f'  ERROR parsing OpenAPI spec: {e}')
+        "
+
+        echo ""
+        echo "=== country table access ==="
+        TABLES=$(docker exec ${PG_CONTAINER} psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} \
+          -tAc "SELECT table_name FROM information_schema.tables
+                WHERE table_schema='v2' AND table_type='BASE TABLE' ORDER BY table_name;")
+        if [ -z "$TABLES" ]; then
+          echo "  (no countries imported — run: task import CITY=malta VERSION=v2)"
+        else
+          for T in $TABLES; do
+            HTTP=$(curl -s -o /dev/null -w "%{http_code}" "$API/$T?limit=1")
+            ROWS=$(curl -s -D - -o /dev/null -H "Prefer: count=exact" "$API/$T?limit=0" 2>/dev/null \
+              | grep -i "content-range" | grep -oP '[0-9]+$' | tail -1 || echo "?")
+            if [ "$HTTP" = "200" ]; then
+              echo "  OK    /$T  →  HTTP $HTTP  ($ROWS rows)"
+            else
+              echo "  FAIL  /$T  →  HTTP $HTTP"
+              FAIL=$((FAIL+1))
+            fi
+          done
+        fi
+
+        if [ "$FAIL" -gt 0 ]; then exit 1; fi
+
+  test:api:rpc:
+    desc: "Test all PostgREST RPC functions against the first available imported country"
+    cmds:
+      - |
+        API="http://localhost:${POSTGREST_PORT}"
+        FAIL=0
+
+        COUNTRY=$(docker exec ${PG_CONTAINER} psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} \
+          -tAc "SELECT table_name FROM information_schema.tables
+                WHERE table_schema='v2' AND table_type='BASE TABLE'
+                ORDER BY table_name LIMIT 1;" | tr -d '[:space:]')
+        if [ -z "$COUNTRY" ]; then
+          echo "No countries imported — run: task import CITY=malta VERSION=v2"
+          exit 0
+        fi
+        echo "Country under test: $COUNTRY"
+        echo ""
+
+        # Helper: call an RPC, print OK/FAIL, increment FAIL counter on error
+        _rpc() {
+          local NAME=$1 BODY=$2
+          local HTTP
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API/rpc/$NAME" \
+            -H "Content-Type: application/json" -d "$BODY")
+          if [ "$HTTP" = "200" ]; then
+            echo "  OK    POST /rpc/$NAME  →  HTTP $HTTP"
+          else
+            ERR=$(curl -s -X POST "$API/rpc/$NAME" \
+              -H "Content-Type: application/json" -d "$BODY" | python3 -c \
+              "import sys,json; d=json.load(sys.stdin); print(d.get('message','?'))" 2>/dev/null)
+            echo "  FAIL  POST /rpc/$NAME  →  HTTP $HTTP  ($ERR)"
+            FAIL=$((FAIL+1))
+          fi
+        }
+
+        echo "=== country_statistics ==="
+        curl -s -X POST "$API/rpc/country_statistics" \
+          -H "Content-Type: application/json" \
+          -d "{\"country_table\":\"$COUNTRY\"}" | python3 -c "
+        import sys, json
+        try:
+            d = json.load(sys.stdin)[0]
+            print(f'  buildings={d[\"total_buildings\"]}  avg_height={d[\"avg_height\"]:.1f}m  avg_area={d[\"avg_area\"]:.0f}m2')
+        except Exception as e:
+            print(f'  ERROR: {e}')
+        "
+
+        echo ""
+        echo "=== age_distribution ==="
+        curl -s -X POST "$API/rpc/age_distribution" \
+          -H "Content-Type: application/json" \
+          -d "{\"country_table\":\"$COUNTRY\"}" | python3 -c "
+        import sys, json
+        try:
+            for r in json.load(sys.stdin):
+                bar = 'X' * int(r['pct_total'] / 5)
+                print(f'  epoch {r[\"epoch_code\"]}  {r[\"epoch_label\"]:<16} {r[\"building_count\"]:>8}  {r[\"pct_total\"]:5.1f}%  {bar}')
+        except Exception as e:
+            print(f'  ERROR: {e}')
+        "
+
+        echo ""
+        echo "=== buildings_in_bbox (world extent, max 1 result) ==="
+        _rpc "buildings_in_bbox" \
+          "{\"country_table\":\"$COUNTRY\",\"min_lon\":-180,\"min_lat\":-90,\"max_lon\":180,\"max_lat\":90}"
+
+        echo ""
+        echo "=== buildings_by_use (use_type=0) ==="
+        _rpc "buildings_by_use" \
+          "{\"country_table\":\"$COUNTRY\",\"use_type\":0}"
+
+        # Fetch a sample unique_id and centroid from the database
+        BLDG_UID=$(docker exec ${PG_CONTAINER} psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} \
+          -tAc "SELECT unique_id FROM v2.\"$COUNTRY\" LIMIT 1;" | tr -d '[:space:]')
+        LATLON=$(docker exec ${PG_CONTAINER} psql -U ${POSTGRES_USER} -d ${POSTGRES_DB} \
+          -tAc "SELECT ST_Y(ST_Transform(ST_Centroid(geom),4326))::numeric(9,5),
+                       ST_X(ST_Transform(ST_Centroid(geom),4326))::numeric(9,5)
+                FROM v2.\"$COUNTRY\" LIMIT 1;" | tr -d '[:space:]')
+        LAT=$(echo "$LATLON" | cut -d'|' -f1)
+        LON=$(echo "$LATLON" | cut -d'|' -f2)
+
+        echo ""
+        echo "=== building_by_id (uid=$BLDG_UID) ==="
+        _rpc "building_by_id" \
+          "{\"country_table\":\"$COUNTRY\",\"uid\":\"$BLDG_UID\"}"
+
+        echo ""
+        echo "=== buildings_similar (ref=$BLDG_UID, radius=10km) ==="
+        _rpc "buildings_similar" \
+          "{\"country_table\":\"$COUNTRY\",\"ref_unique_id\":\"$BLDG_UID\",\"radius_m\":10000}"
+
+        echo ""
+        echo "=== buildings_nearby (lat=$LAT lon=$LON radius=500m) ==="
+        _rpc "buildings_nearby" \
+          "{\"country_table\":\"$COUNTRY\",\"lat\":$LAT,\"lon\":$LON,\"radius_m\":500}"
+
+        echo ""
+        echo "=== compare_versions (requires v1 + v2 — INFO only) ==="
+        HTTP=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$API/rpc/compare_versions" \
+          -H "Content-Type: application/json" \
+          -d "{\"country_table\":\"$COUNTRY\",\"limit_rows\":5}")
+        if [ "$HTTP" = "200" ]; then
+          echo "  OK    POST /rpc/compare_versions  →  HTTP $HTTP"
+        else
+          echo "  INFO  POST /rpc/compare_versions  →  HTTP $HTTP (expected if v1 data not imported)"
+        fi
+
+        echo ""
+        if [ "$FAIL" -eq 0 ]; then
+          echo "All RPC tests passed."
+        else
+          echo "$FAIL RPC test(s) failed."
+          exit 1
+        fi
+
+  test:geoserver:
+    desc: "Verify GeoServer — REST API, workspaces, styles, WMS and WFS endpoints (GeoServer needs ~90s to start)"
+    cmds:
+      - |
+        BASE="http://localhost:${GEOSERVER_PORT}/geoserver"
+        AUTH="${GEOSERVER_ADMIN_USER}:${GEOSERVER_ADMIN_PASSWORD}"
+        FAIL=0
+
+        echo "=== GeoServer REST API ==="
+        HTTP=$(curl -s -o /dev/null -w "%{http_code}" -u "$AUTH" \
+          "$BASE/rest/about/version.json")
+        if [ "$HTTP" = "200" ]; then
+          VER=$(curl -s -u "$AUTH" "$BASE/rest/about/version.json" | python3 -c "
+        import sys,json
+        try:
+            r=json.load(sys.stdin)['about']['resource']
+            r=r[0] if isinstance(r,list) else r
+            print(r.get('Version','?'))
+        except: print('?')
+        ")
+          echo "  OK    REST API  →  GeoServer $VER"
+        else
+          echo "  FAIL  REST API  →  HTTP $HTTP  (is GeoServer fully started?)"
+          FAIL=$((FAIL+1))
+        fi
+
+        echo ""
+        echo "=== workspaces ==="
+        curl -s -u "$AUTH" "$BASE/rest/workspaces.json" | python3 -c "
+        import sys, json
+        ws=json.load(sys.stdin).get('workspaces',{}).get('workspace',[])
+        for w in ws: print(f'  - {w[\"name\"]}')
+        print(f'  Total: {len(ws)} workspace(s)')
+        "
+
+        echo ""
+        echo "=== SLD styles ==="
+        HTTP=$(curl -s -o /dev/null -w "%{http_code}" -u "$AUTH" \
+          "$BASE/rest/styles/dbsm_buildings.json")
+        if [ "$HTTP" = "200" ]; then
+          echo "  OK    style/dbsm_buildings"
+        else
+          echo "  FAIL  style/dbsm_buildings  →  HTTP $HTTP"
+          FAIL=$((FAIL+1))
+        fi
+        HTTP=$(curl -s -o /dev/null -w "%{http_code}" -u "$AUTH" \
+          "$BASE/rest/styles/dbsm_buildings_v1.json")
+        if [ "$HTTP" = "200" ]; then
+          echo "  OK    style/dbsm_buildings_v1"
+        else
+          echo "  INFO  style/dbsm_buildings_v1  →  HTTP $HTTP (only present when v1 data is imported)"
+        fi
+
+        echo ""
+        echo "=== layers per workspace ==="
+        for V in v1 v2; do
+          WS="dbsm_${V}"
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" -u "$AUTH" \
+            "$BASE/rest/workspaces/$WS/datastores/postgis_${V}/featuretypes.json")
+          if [ "$HTTP" = "200" ]; then
+            INFO=$(curl -s -u "$AUTH" \
+              "$BASE/rest/workspaces/$WS/datastores/postgis_${V}/featuretypes.json" | python3 -c "
+        import sys,json
+        fts=json.load(sys.stdin).get('featureTypes',{}).get('featureType',[])
+        names=', '.join(f['name'] for f in fts) or '(none)'
+        print(f'{len(fts)} layer(s): {names}')
+            ")
+            echo "  OK    $WS  →  $INFO"
+          else
+            echo "  INFO  $WS  →  HTTP $HTTP (workspace not yet initialised)"
+          fi
+        done
+
+        echo ""
+        echo "=== WMS GetCapabilities ==="
+        for V in v1 v2; do
+          WS="dbsm_${V}"
+          HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+            "$BASE/$WS/ows?service=WMS&version=1.3.0&request=GetCapabilities")
+          if [ "$HTTP" = "200" ]; then
+            # Workspace-specific WMS endpoint returns unqualified names (e.g. "malta" not "dbsm_v2:malta")
+            # Count by excluding known non-layer Name tags (WMS, LayerGroup, style names)
+            N=$(curl -s "$BASE/$WS/ows?service=WMS&version=1.3.0&request=GetCapabilities" \
+              | grep -o "<Name>[^<]*</Name>" \
+              | grep -vE "<Name>(WMS|${WS}_all|default-style-)" | wc -l)
+            echo "  OK    WMS $WS  →  HTTP $HTTP  ($N layer(s) in capabilities)"
+          else
+            echo "  INFO  WMS $WS  →  HTTP $HTTP"
+          fi
+        done
+
+        echo ""
+        echo "=== WFS GetCapabilities (v2 only) ==="
+        HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
+          "$BASE/dbsm_v2/ows?service=WFS&version=2.0.0&request=GetCapabilities")
+        if [ "$HTTP" = "200" ]; then
+          echo "  OK    WFS dbsm_v2  →  HTTP $HTTP"
+        else
+          echo "  INFO  WFS dbsm_v2  →  HTTP $HTTP"
+        fi
+
+        if [ "$FAIL" -gt 0 ]; then exit 1; fi
+
+  test:ui:
+    desc: "Verify pgAdmin and Swagger UI return HTTP 200"
+    cmds:
+      - |
+        FAIL=0
+
+        echo "=== pgAdmin ==="
+        HTTP=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${PGADMIN_PORT}/")
+        if [ "$HTTP" = "200" ] || [ "$HTTP" = "302" ]; then
+          echo "  OK    http://localhost:${PGADMIN_PORT}/  (HTTP $HTTP — login redirect is normal)"
+        else
+          echo "  FAIL  http://localhost:${PGADMIN_PORT}/  →  HTTP $HTTP"
+          FAIL=$((FAIL+1))
+        fi
+
+        echo ""
+        echo "=== Swagger UI ==="
+        HTTP=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:${SWAGGER_PORT}/")
+        if [ "$HTTP" = "200" ]; then
+          echo "  OK    http://localhost:${SWAGGER_PORT}/"
+        else
+          echo "  FAIL  http://localhost:${SWAGGER_PORT}/  →  HTTP $HTTP"
+          FAIL=$((FAIL+1))
+        fi
+
+        if [ "$FAIL" -gt 0 ]; then exit 1; fi
+
+  test:all:
+    desc: "Run the full test suite — services, database, PostgREST, GeoServer, and UI"
+    cmds:
+      - echo "════════════════ TEST SUITE START ════════════════"
+      - echo ""
+      - echo "── [1/6] Container status ──"
+      - task: test:services
+      - echo ""
+      - echo "── [2/6] PostgreSQL ──"
+      - task: test:postgres
+      - echo ""
+      - echo "── [3/6] PostgREST API ──"
+      - task: test:api
+      - echo ""
+      - echo "── [4/6] PostgREST RPCs ──"
+      - task: test:api:rpc
+      - echo ""
+      - echo "── [5/6] GeoServer ──"
+      - task: test:geoserver
+      - echo ""
+      - echo "── [6/6] Web UIs ──"
+      - task: test:ui
+      - echo ""
+      - echo "════════════════ TEST SUITE COMPLETE ════════════════"
 
