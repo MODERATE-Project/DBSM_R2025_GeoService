@@ -485,19 +485,31 @@ The project uses two external reference layers published by [Eurostat GISCO](htt
 
 **Licence:** © EuroGeographics for the administrative boundaries. Non-commercial use; source attribution required. Commercial use requires contacting [EuroGeographics](https://www.eurogeographics.org/) directly.
 
-Download them directly (no ZIP, no extraction needed):
+**Option A — Command line (recommended, no browser needed):**
 
 ```bash
 # Country boundaries GeoPackage (~4 MB)
 wget "https://gisco-services.ec.europa.eu/distribution/v2/countries/gpkg/CNTR_RG_01M_2016_3035.gpkg" \
-     -P /path/to/your/gisco-layers/
+     -P qgis_project/
 
 # Commune boundaries GeoJSON (~80 MB)
 wget "https://gisco-services.ec.europa.eu/distribution/v2/communes/geojson/COMM_RG_01M_2016_3035.geojson" \
-     -P /path/to/your/gisco-layers/
+     -P qgis_project/
 ```
 
-Place the files in a directory of your choice. When you first open the QGIS project, if QGIS reports missing layers for `CNTR_RG_01M_2016_3035` or `COMM_RG_01M_2016_3035`, right-click the broken layer → **Repair Data Source** and point to where you saved the files.
+**Option B — Web interface:** Open the GISCO [Administrative Units download page](https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units), select the section (**Countries** or **Communes**) and apply the following filter values exactly — the interface does not indicate which combination produces a valid file, so all five parameters must match:
+
+| Parameter | Value for `CNTR_RG_01M_2016_3035.gpkg` | Value for `COMM_RG_01M_2016_3035.geojson` |
+|-----------|----------------------------------------|-------------------------------------------|
+| **Year** | 2016 | 2016 |
+| **File format** | GeoPackage | GeoJSON |
+| **Geometry type** | Polygons (RG) | Polygons (RG) |
+| **Scale** | 01M | 01M |
+| **Coordinate reference system** | EPSG: 3035 | EPSG: 3035 |
+
+Save the downloaded files into `qgis_project/` (the same directory as `dbsm_demo.qgs`). The project references them with a relative path, so placing them there means QGIS will find them automatically without any manual repair step.
+
+If the files end up elsewhere, or if QGIS reports missing layers for `CNTR_RG_01M_2016_3035` or `COMM_RG_01M_2016_3035`, right-click the broken layer → **Repair Data Source** and point to where you saved the files.
 
 #### 7.3 Configure macro permissions (first time only)
 
@@ -1534,21 +1546,6 @@ task api:reload
 ```
 
 If the table does not exist at all, import the country first: `task import CITY=malta VERSION=v2`.
-
----
-
-## Roadmap
-
-### Planned
-- `building_features` RPC function: flattened feature vector from JSON metadata (`age`, `type`, `levels`) for ML/analysis pipelines
-- ~~`age_distribution` RPC function: construction decade histogram per country~~ ✅ implemented
-- ~~PostgreSQL configuration tuning defaults in `docker-compose.yml`~~ ✅ implemented
-- ~~GeoWebCache seeding integrated into the `task import` pipeline~~ ✅ implemented
-- QGIS 3D Map View configuration using the `height` field for building extrusion
-
-### Under evaluation
-- Morphological clustering by `[area, height, shapefactor, epoch, use]`
-- Vector tile service (`pg_tileserv` or `Martin`) as a high-performance WMS alternative
 
 ---
 
