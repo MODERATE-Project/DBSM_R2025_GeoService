@@ -5,7 +5,15 @@ psql -v ON_ERROR_STOP=1 \
      -v auth_password="$PGRST_DB_AUTHENTICATOR_PASSWORD" \
      --username "$POSTGRES_USER" \
      --dbname "$POSTGRES_DB" <<'SQL'
-CREATE ROLE IF NOT EXISTS web_anon NOLOGIN;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'web_anon') THEN
+        CREATE ROLE web_anon NOLOGIN;
+    END IF;
+END
+$$;
+
 GRANT USAGE ON SCHEMA v1 TO web_anon;
 GRANT USAGE ON SCHEMA v2 TO web_anon;
 GRANT SELECT ON ALL TABLES IN SCHEMA v1 TO web_anon;
@@ -14,10 +22,20 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA v1 GRANT SELECT ON TABLES TO web_anon;
 ALTER DEFAULT PRIVILEGES IN SCHEMA v2 GRANT SELECT ON TABLES TO web_anon;
 ALTER DEFAULT PRIVILEGES IN SCHEMA v1 GRANT EXECUTE ON FUNCTIONS TO web_anon;
 ALTER DEFAULT PRIVILEGES IN SCHEMA v2 GRANT EXECUTE ON FUNCTIONS TO web_anon;
-
-CREATE ROLE IF NOT EXISTS authenticator NOINHERIT LOGIN PASSWORD :'auth_password';
-GRANT web_anon TO authenticator;
-
 ALTER DEFAULT PRIVILEGES IN SCHEMA v1 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLES FROM web_anon;
 ALTER DEFAULT PRIVILEGES IN SCHEMA v2 REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON TABLES FROM web_anon;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticator') THEN
+        CREATE ROLE authenticator NOINHERIT LOGIN;
+    END IF;
+END
+$$;
+-- Password set outside DO block because psql variables (:auth_password) don't expand inside PL/pgSQL
+ALTER ROLE authenticator PASSWORD :'auth_password';
+ALTER ROLE authenticator NOINHERIT LOGIN;
+
+GRANT web_anon TO authenticator;
+
 SQL
