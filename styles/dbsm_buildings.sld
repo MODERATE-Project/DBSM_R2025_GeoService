@@ -12,6 +12,23 @@
       <Abstract>Building footprints coloured by height: unknown (grey), low ≤6 m (yellow), medium ≤15 m (orange), tall ≤30 m (red), high-rise >30 m (dark red). Only rendered at scales finer than 1:100 000 to avoid querying millions of polygons at regional/national zoom levels.</Abstract>
       <FeatureTypeStyle>
 
+        <!-- Overview: all buildings at national/regional scale (> 1:100 000) as uniform orange -->
+        <Rule>
+          <Name>overview</Name>
+          <Title>Overview (regional scale)</Title>
+          <MinScaleDenominator>100000</MinScaleDenominator>
+          <PolygonSymbolizer>
+            <Fill>
+              <CssParameter name="fill">#FD8D3C</CssParameter>
+              <CssParameter name="fill-opacity">0.6</CssParameter>
+            </Fill>
+            <Stroke>
+              <CssParameter name="stroke">#CC6010</CssParameter>
+              <CssParameter name="stroke-width">0.1</CssParameter>
+            </Stroke>
+          </PolygonSymbolizer>
+        </Rule>
+
         <!-- Unknown: null or zero height -->
         <Rule>
           <Name>unknown</Name>
