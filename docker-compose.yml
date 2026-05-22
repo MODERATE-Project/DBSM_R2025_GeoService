@@ -72,7 +72,7 @@ services:
       - "${POSTGREST_PORT}:3000"
     environment:
       PGRST_DB_URI: postgres://authenticator:${PGRST_DB_AUTHENTICATOR_PASSWORD}@postgres:5432/${POSTGRES_DB}
-      PGRST_OPENAPI_SERVER_PROXY_URI: http://${SERVER_HOST}:${POSTGREST_PORT}
+      PGRST_OPENAPI_SERVER_PROXY_URI: ${POSTGREST_PUBLIC_URL}
       PGRST_DB_ANON_ROLE: ${PGRST_DB_ANON_ROLE}
       PGRST_DB_SCHEMA: ${PGRST_DB_SCHEMA}
       PGRST_OPENAPI_MODE: ${PGRST_OPENAPI_MODE}
@@ -90,7 +90,7 @@ services:
     expose:
       - "${SWAGGER_PORT}"
     environment:
-      API_URL: http://${SERVER_HOST}:${POSTGREST_PORT}/
+      API_URL: ${POSTGREST_PUBLIC_URL}/
     depends_on:
       postgres:
         condition: service_healthy
