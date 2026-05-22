@@ -501,7 +501,8 @@ tasks:
         echo "=== workspaces ==="
         curl -s -u "$AUTH" "$BASE/rest/workspaces.json" | python3 -c "
         import sys, json
-        ws=json.load(sys.stdin).get('workspaces',{}).get('workspace',[])
+        raw=json.load(sys.stdin).get('workspaces',{})
+        ws=raw.get('workspace',[]) if isinstance(raw,dict) else []
         for w in ws: print(f'  - {w[\"name\"]}')
         print(f'  Total: {len(ws)} workspace(s)')
         "
