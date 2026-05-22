@@ -51,10 +51,10 @@ if [ ! -d "./datasets" ]; then
 fi
 echo -e "${GREEN} Datasets directory exists.${NC}"
 
-# Check if the ogr2ogr command is available
+# Check if ogr2ogr is available inside the database container
 echo -e "${YELLOW} Checking if ogr2ogr command is available...${NC}"
-if ! command -v ogr2ogr &> /dev/null; then
-    echo -e "${RED} ogr2ogr command not found. Please install GDAL and try again.${NC}"
+if ! docker exec "$PG_CONTAINER" ogr2ogr --version &> /dev/null; then
+    echo -e "${RED} ogr2ogr not found in container $PG_CONTAINER. Rebuild with: docker compose up -d --build postgres${NC}"
     exit 1
 fi
 echo -e "${GREEN} ogr2ogr command is available.${NC}"
@@ -74,11 +74,11 @@ import_and_grant() {
     # A. Asegurar que el esquema existe y tiene permisos base ANTES de importar
     docker exec -u postgres "$PG_CONTAINER" psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "CREATE SCHEMA IF NOT EXISTS \"$target_version\"; GRANT USAGE ON SCHEMA \"$target_version\" TO web_anon;" > /dev/null
 
-    # B. Importar con ogr2ogr
+    # B. Importar con ogr2ogr (runs inside the container where GDAL is installed)
     echo -e "${BLUE} Importing into ${target_version}.${target_city}...${NC}"
-    ogr2ogr -progress \
-    -overwrite -f PostgreSQL "PG:host=$PG_HOST port=$PG_PORT user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" \
-    "$target_file" \
+    docker exec "$PG_CONTAINER" ogr2ogr -progress \
+    -overwrite -f PostgreSQL "PG:host=localhost port=5432 user=$POSTGRES_USER password=$POSTGRES_PASSWORD dbname=$POSTGRES_DB" \
+    "/datasets/$(basename "$target_file")" \
     -nlt PROMOTE_TO_MULTI \
     -nln "$target_city" \
     -lco SCHEMA="$target_version" \

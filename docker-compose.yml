@@ -40,6 +40,7 @@ services:
       - ./initdb/01_postgis.sql:/docker-entrypoint-initdb.d/01_postgis.sql
       - ./initdb/02_postgrest.sh:/docker-entrypoint-initdb.d/02_postgrest.sh
       - ./initdb/03_api_functions.sql:/docker-entrypoint-initdb.d/03_api_functions.sql
+      - ./datasets:/datasets
     networks:
       - dbsm-geoservice-net
 
