@@ -1,2 +1,4 @@
 FROM postgres:16
-RUN apt-get update -y && apt-get install -y postgresql-16-postgis-3
+RUN apt-get update -y \
+    && apt-get install -y postgresql-16-postgis-3 gdal-bin \
+    && rm -rf /var/lib/apt/lists/*
