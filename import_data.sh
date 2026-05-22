@@ -60,7 +60,7 @@ fi
 echo -e "${GREEN} ogr2ogr command is available.${NC}"
 
 # Load GPKG files
-start_time=$(date +%s.%N)
+start_time=$(date +%s)
 
 import_and_grant() {
     local target_file=$1
@@ -128,14 +128,8 @@ else
 
     import_and_grant "$FILE" "$CITY" "$VERSION" || exit 1
 fi
-end_time=$(date +%s.%N)
-duration=$(echo "$end_time - $start_time" | bc)
-
-# Check if the import was successful
-if [ $? -ne 0 ]; then
-    echo -e "${RED} Data import failed. Please check the error messages above.${NC}"
-    exit 1
-fi
+end_time=$(date +%s)
+duration=$((end_time - start_time))
 
 echo -e "${GREEN} Data import completed successfully.${NC}"
 echo -e "${BLUE} Data import completed in ${duration} seconds.${NC}"
