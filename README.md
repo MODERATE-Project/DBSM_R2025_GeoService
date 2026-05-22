@@ -24,6 +24,11 @@ Built as a Proof of Concept for the [MODERATE](https://github.com/MODERATE-Proje
   - [Step 5 — Download datasets](#step-5--download-datasets)
   - [Step 6 — Import data](#step-6--import-data)
   - [Step 7 — Set up the QGIS desktop client](#step-7--set-up-the-qgis-desktop-client)
+- [Deploying on a shared server](#deploying-on-a-shared-server)
+  - [Pre-deployment conflict checks](#deploying-on-a-shared-server)
+  - [SERVER_HOST and Swagger UI remote access](#server_host-and-swagger-ui-remote-access)
+  - [Datasets directory](#datasets-directory)
+  - [GDAL — no host installation required](#gdal--no-host-installation-required)
 - [Service Access](#service-access)
 - [Environment Variables Reference](#environment-variables-reference)
 - [Repository Structure](#repository-structure)
@@ -36,7 +41,6 @@ Built as a Proof of Concept for the [MODERATE](https://github.com/MODERATE-Proje
 - [QGIS — Desktop Client Guide](#qgis--desktop-client-guide)
 - [Performance Considerations](#performance-considerations)
 - [Known Issues & Troubleshooting](#known-issues--troubleshooting)
-- [Roadmap](#roadmap)
 - [References](#references)
 
 ---
@@ -260,8 +264,9 @@ Full licence text: [https://opendatacommons.org/licenses/odbl/1-0/](https://open
 | Docker Engine | 24 | Container runtime | [docs.docker.com/engine/install](https://docs.docker.com/engine/install/) |
 | Docker Compose | 2 | Multi-container orchestration | Included with Docker Desktop |
 | Task | any | CLI task runner | `sh -c "$(curl -sL https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin` |
-| GDAL / ogr2ogr | 3.x | GeoPackage → PostGIS import | `sudo apt install gdal-bin` |
 | Python 3 + requests | 3.8+ | GeoServer REST automation | `pip install requests` |
+
+> **GDAL / ogr2ogr is not required on the host.** It is bundled inside the custom PostGIS Docker image (`Dockerfile.postgis`). The import pipeline runs `ogr2ogr` via `docker exec` directly inside the container, so no host GDAL installation is needed.
 
 **QGIS 3.x** is optional — required only for the desktop client integration.
 
@@ -299,20 +304,38 @@ All runtime configuration is controlled by the `.env` file. A template with defa
 cp .env.default .env
 ```
 
-Open `.env` in a text editor. For a first deployment on a local machine you can use the defaults as-is. For any shared or production-like environment, change the passwords before running anything else — see [Environment Variables Reference](#environment-variables-reference) for a description of every variable.
+Open `.env` in a text editor. For a first deployment on a local machine you can use the defaults as-is. For any shared or production-like environment, change the passwords and review the port assignments before running anything else — see [Environment Variables Reference](#environment-variables-reference) for a description of every variable.
 
 **Minimum edits for a non-default deployment:**
 
 ```bash
 # .env — change at minimum these five values
 POSTGRES_PASSWORD=<strong-password>
-PGRST_DB_AUTHENTICATOR_PASSWORD=<same-strong-password>   # must match POSTGRES_PASSWORD for PostgREST
+PGRST_DB_AUTHENTICATOR_PASSWORD=<strong-password>
 PGADMIN_DEFAULT_EMAIL=you@yourorg.com
 PGADMIN_DEFAULT_PASSWORD=<another-strong-password>
 GEOSERVER_ADMIN_PASSWORD=<another-strong-password>
 ```
 
 > `PGRST_DB_AUTHENTICATOR_PASSWORD` and `POSTGRES_PASSWORD` do not need to be the same value, but the `authenticator` database role created during init will use whatever is set in `PGRST_DB_AUTHENTICATOR_PASSWORD`. Ensure consistency — both values come from the same `.env`.
+
+**Additional edits for a shared or remote server:**
+
+```bash
+# Avoid port conflicts with other services on the host — check first:
+# ss -tlnp | grep -E ':3500|:3501|:3502|:3503|:3504'
+PG_PORT=3500
+POSTGREST_PORT=3501
+PGADMIN_PORT=3502
+GEOSERVER_PORT=3503
+SWAGGER_PORT=3504
+
+# Set to the server's public hostname or IP so Swagger UI resolves
+# correctly when accessed from a remote browser:
+SERVER_HOST=your-server-hostname-or-ip
+```
+
+See [Deploying on a shared server](#deploying-on-a-shared-server) for the full pre-deployment checklist.
 
 ---
 
@@ -425,7 +448,7 @@ task import CITY=malta VERSION=v2
 ```
 
 This single command runs three steps automatically:
-1. **Import** — `ogr2ogr` converts `./datasets/dbsm-v2-malta-R2025.gpkg` into table `v2.malta` in PostgreSQL and grants SELECT permissions to `web_anon`.
+1. **Import** — `ogr2ogr` (running inside the PostGIS container) converts `/datasets/dbsm-v2-malta-R2025.gpkg` into table `v2.malta` in PostgreSQL and grants SELECT permissions to `web_anon`.
 2. **Publish** — `gsconfig.py` creates the GeoServer FeatureType, recalculates the bounding box, assigns the SLD style, and rebuilds the LayerGroup.
 3. **Reload** — PostgREST is signalled to refresh its schema cache, making `v2.malta` immediately accessible via the API.
 
@@ -534,6 +557,68 @@ If this setting is left at **"Never"**, QGIS will silently skip the macro and bu
 If the connection parameters in your `.env` differ from the defaults (different host, port, password), update the layer connections: right-click a layer → **Properties → Source** → edit the connection URI.
 
 See the full [QGIS — Desktop Client Guide](#qgis--desktop-client-guide) section for usage instructions.
+
+---
+
+## Deploying on a shared server
+
+When the host already runs other Docker services, a few conflicts must be ruled out before `task up`. Run these checks on the server from the project directory:
+
+```bash
+# 1. Ports — no output means all five are free
+ss -tlnp | grep -E ':3500|:3501|:3502|:3503|:3504'
+
+# 2. Container names — no output means no collision with dbsm_* names
+docker ps -a --format '{{.Names}}' | grep -E 'dbsm_'
+
+# 3. Docker network
+docker network ls | grep dbsm-geoservice-net
+
+# 4. Named volumes
+docker volume ls | grep dbsm
+
+# 5. Stale data directories from a previous deployment
+ls -la postgres_data/ geoserver_data/ 2>/dev/null
+```
+
+If any port is taken, change the corresponding variable in `.env` before starting. The default range `3500–3504` was chosen to minimise conflicts on typical multi-service hosts.
+
+### SERVER_HOST and Swagger UI remote access
+
+Swagger UI resolves API calls from the **browser**, not the server. If `SERVER_HOST=localhost` (the default), executing a request in Swagger from a remote machine will direct the call to the user's own localhost — not the server — and the call will fail silently.
+
+Set `SERVER_HOST` in `.env` to the server's public hostname or IP before the first `task up`:
+
+```bash
+# .env
+SERVER_HOST=your-server.example.org   # or the IP address
+```
+
+This value is injected into both `PGRST_OPENAPI_SERVER_PROXY_URI` and Swagger's `API_URL` at container startup. Changing it after the stack is already running requires a container restart:
+
+```bash
+docker compose up -d --no-deps postgrest swagger
+```
+
+### Datasets directory
+
+The `.gpkg` dataset files are not included in the repository (they range from 37 MB to ~23 GB). Place them in `./datasets/` on the server before importing. The `datasets/` directory is mounted read-only into the PostGIS container at `/datasets`, so files copied there are immediately available to `task import` without any container restart.
+
+```bash
+# Copy from a local machine
+rsync -avz --progress datasets/ user@your-server:~/path/to/project/datasets/
+
+# Or download directly on the server
+wget "https://jeodpp.jrc.ec.europa.eu/ftp/..." -P datasets/
+```
+
+### GDAL — no host installation required
+
+`ogr2ogr` is bundled inside the custom PostGIS image (`Dockerfile.postgis`). The import pipeline executes it via `docker exec` using the container's internal PostgreSQL connection, so no GDAL installation is needed on the host. If you upgrade the image after an existing deployment, rebuild the container:
+
+```bash
+docker compose up -d --build postgres
+```
 
 ---
 
@@ -666,7 +751,7 @@ docker restart dbsm_postgrest
 
 **`Taskfile.yml`** — Single-command interface for all operations. Reads `.env` via `dotenv: ['.env']`. See [Task Reference](#task-reference).
 
-**`import_data.sh`** — Validates prerequisites (ogr2ogr, PostgreSQL connectivity, datasets directory), runs `ogr2ogr` to import one GeoPackage or all of them, then grants permissions to `web_anon`.
+**`import_data.sh`** — Validates prerequisites, runs `ogr2ogr` inside the PostGIS container via `docker exec` to import one GeoPackage or all of them, then grants permissions to `web_anon`. No GDAL installation is required on the host.
 
 **`gsconfig.py`** — Idempotent GeoServer automation: workspace, datastore, SLD upload, FeatureType publication, bounding-box recalculation, LayerGroup rebuild. Uses DELETE + POST for LayerGroups to work around a bug in GeoServer 2.24.x.
 
@@ -748,6 +833,7 @@ task db:reset   # WARNING: destroys all imported data and volumes
 | `task logs` | Stream live logs from all containers |
 | `task ps` | Show container status and health |
 | `task import CITY=<c> VERSION=<v>` | Full pipeline: import → publish → API reload |
+| `task import:all VERSION=<v>` | Batch-import all `.gpkg` files found in `./datasets/` |
 | `task geoserver:publish CITY=<c> VERSION=<v>` | Publish a single PostGIS table to GeoServer |
 | `task geoserver:init VERSION=<v>` | Create shared GeoServer resources (idempotent) |
 | `task geoserver:status VERSION=<v>` | List published layers in a workspace |
@@ -758,6 +844,13 @@ task db:reset   # WARNING: destroys all imported data and volumes
 | `task clean:soft` | Remove containers and networks, preserve volumes |
 | `task clean:nuke` | **DESTRUCTIVE** — remove containers, volumes and data directories |
 | `task db:reset` | **DESTRUCTIVE** — full teardown and restart |
+| `task test:services` | Check all 5 containers are running and report health |
+| `task test:postgres` | Verify schemas, roles, tables, and API functions |
+| `task test:api` | PostgREST health, OpenAPI spec, and per-table HTTP checks |
+| `task test:api:rpc` | All RPC functions against the first imported country |
+| `task test:geoserver` | GeoServer REST API, workspaces, styles, WMS, and WFS |
+| `task test:ui` | pgAdmin and Swagger UI HTTP smoke tests |
+| `task test:all` | Run the full test suite in order (recommended after deployment) |
 
 ---
 
@@ -1517,6 +1610,13 @@ The file name does not match the expected pattern. For v2 files downloaded from 
 mv datasets/dbsm-malta-R2025.gpkg datasets/dbsm-v2-malta-R2025.gpkg
 ```
 
+**Problem: `task import` fails with `ogr2ogr not found in container`**
+
+The PostGIS image was built before GDAL was added to `Dockerfile.postgis`. Rebuild the container:
+```bash
+docker compose up -d --build postgres
+```
+
 **Problem: GeoServer web UI is unreachable at http://localhost:3503**
 
 GeoServer takes 60–120 seconds to start. Check its status with:
@@ -1531,6 +1631,21 @@ If the container shows `unhealthy`, the healthcheck failed. This usually resolve
 
 `GEOSERVER_ADMIN_PASSWORD` in `.env` does not match what GeoServer was started with. If you changed the password in `.env` after the first start, GeoServer's stored credentials (in `./geoserver_data/`) still use the old value. Either restore the old password in `.env` or do a full reset: `task clean:nuke && task up`.
 
+**Problem: Swagger UI "Try it out" calls fail or return network error when accessed remotely**
+
+`SERVER_HOST` is set to `localhost` (the default). Swagger UI resolves API calls from the browser, so `localhost` points to the user's own machine, not the server. Set `SERVER_HOST` to the server's hostname or IP in `.env` and restart the affected containers:
+```bash
+docker compose up -d --no-deps postgrest swagger
+```
+
+**Problem: Port conflict on startup — `address already in use`**
+
+Another service on the host is using one of the mapped ports. Identify which port and change it in `.env` before restarting:
+```bash
+ss -tlnp | grep -E ':3500|:3501|:3502|:3503|:3504'
+# Then edit .env, change the conflicting port, and run: task up
+```
+
 **Problem: QGIS layer fails to load — "Unable to open datasource"**
 
 1. Confirm the stack is running: `task ps`
@@ -1540,10 +1655,6 @@ If the container shows `unhealthy`, the healthcheck failed. This usually resolve
 **Problem: QGIS action "Load commune footprints" shows error for a country**
 
 The country's ISO2 code is not in the `COUNTRY_MAP` dictionary in the action. Edit the action and add the mapping — see [Extending the project to new countries](#extending-the-project-to-new-countries).
-
-**Problem: `task db:apply-sql` shows `ERROR: role "web_anon" already exists`**
-
-This is expected and harmless — `02_postgrest.sh` uses `CREATE ROLE IF NOT EXISTS` so the error is not raised for roles. If you see it, check your script version (`initdb/02_postgrest.sh`, not the old `02_postgrest.sql`).
 
 **Problem: All API calls return an empty array `[]`**
 
