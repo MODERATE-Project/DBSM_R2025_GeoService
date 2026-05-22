@@ -24,6 +24,8 @@ Built as a Proof of Concept for the [MODERATE](https://github.com/MODERATE-Proje
   - [Step 5 — Download datasets](#step-5--download-datasets)
   - [Step 6 — Import data](#step-6--import-data)
   - [Step 7 — Set up the QGIS desktop client](#step-7--set-up-the-qgis-desktop-client)
+    - [7.4 Configure the database connection](#74-configure-the-database-connection)
+    - [7.5 Open the project](#75-open-the-project)
 - [Deploying on a shared server](#deploying-on-a-shared-server)
   - [Pre-deployment conflict checks](#deploying-on-a-shared-server)
   - [SERVER_HOST and Swagger UI remote access](#server_host-and-swagger-ui-remote-access)
@@ -545,16 +547,57 @@ The project uses a Python macro to automatically apply interactive actions to al
 
 If this setting is left at **"Never"**, QGIS will silently skip the macro and building-level actions will not be available.
 
-#### 7.4 Open the project
+#### 7.4 Configure the database connection
+
+The project file (`dbsm_demo.qgs`) has PostgreSQL connection parameters embedded directly in the XML. The connection in the committed file may not match your local environment (host, port, password). To avoid QGIS prompting for credentials on every open, patch the file before opening it.
+
+**Create your local connection configuration:**
+
+```bash
+cp qgis_project/connection.default.cfg qgis_project/connection.cfg
+```
+
+Open `qgis_project/connection.cfg` and set the correct values for your environment:
+
+```ini
+[connection]
+host=localhost          # change to your server hostname if connecting remotely
+port=3500               # must match PG_PORT in .env
+user=dbsm_admin
+password=postgres       # must match POSTGRES_PASSWORD in .env
+database=dbsm
+```
+
+> `connection.cfg` is listed in `.gitignore` — your credentials will never be committed to the repository.
+
+**Patch the project file:**
+
+```bash
+python3 qgis_project/inject_macro.py
+```
+
+This script reads `connection.cfg` and rewrites all PostgreSQL datasource URIs inside `dbsm_demo.qgs` to use your values. Run it from the repository root (or from inside `qgis_project/`). You must have Python 3 available; no additional packages are required.
+
+Expected output:
+```
+connection.cfg found — will patch datasources to localhost:3500
+Patched 5 <datasource> element(s) and 5 layer-tree source attribute(s).
+Verification OK — macro present (13355 chars).
+Verification OK — datasources patched to localhost:3500.
+```
+
+You only need to run this once per environment. Re-run it whenever you change `connection.cfg` (e.g. after changing the password in `.env`).
+
+> **Important:** Run `inject_macro.py` with QGIS closed, or at least with `dbsm_demo.qgs` not open. If QGIS has the project open, it rewrites the file on close and will overwrite the patched connection parameters.
+
+#### 7.5 Open the project
 
 1. Go to **Project → Open…**
 2. Navigate to `qgis_project/dbsm_demo.qgs` and open it
 3. If macros are set to **"Ask"**, a security dialog will appear — click **Enable macros**
-4. QGIS will prompt for a database password if connections are not stored — enter `postgres` (or the value of `POSTGRES_PASSWORD` from your `.env`)
+4. The project should load without prompting for credentials — the connection is already embedded in the file
 
 > **Note on loading time:** Opening the project for the first time may take 30–60 seconds while QGIS connects to PostGIS and loads layer metadata. This is normal, especially for large datasets like Spain or Italy. Subsequent opens are faster.
-
-If the connection parameters in your `.env` differ from the defaults (different host, port, password), update the layer connections: right-click a layer → **Properties → Source** → edit the connection URI.
 
 See the full [QGIS — Desktop Client Guide](#qgis--desktop-client-guide) section for usage instructions.
 
@@ -637,7 +680,7 @@ All services are deployed on `localhost` by default. Ports are defined in `.env`
 
 > All credentials shown are the defaults from `.env.default`. If you edited `.env` before starting, use those values instead. Credentials are **never stored in the repository** — only `.env.default` (with placeholder-level defaults) is committed.
 >
-> **QGIS note:** When opening `qgis_project/dbsm_demo.qgs`, QGIS may prompt for the database password on startup (for layers whose datasource URI does not embed it). Enter the value of `POSTGRES_PASSWORD` from your `.env` — `postgres` by default. If you changed the password, update each layer's datasource via **Layer → Properties → Source** or re-save the project with the new credentials stored.
+> **QGIS note:** The `dbsm_demo.qgs` project file has connection parameters embedded in its XML. To avoid credential prompts on open, copy `qgis_project/connection.default.cfg` to `qgis_project/connection.cfg`, fill in your host/port/password, and run `python3 qgis_project/inject_macro.py` once before opening the project. See [Step 7.4](#74-configure-the-database-connection) for the full procedure.
 
 ---
 
@@ -739,7 +782,11 @@ docker restart dbsm_postgrest
 │   └── dbsm_buildings_v1.sld   # v1 SLD style: flat colour (no height)
 │
 ├── qgis_project/
-│   └── dbsm_demo.qgs           # QGIS 3 demo project (Malta, Luxembourg, Spain, Italy)
+│   ├── dbsm_demo.qgs           # QGIS 3 demo project (Malta, Luxembourg, Spain, Italy)
+│   ├── dbsm_macro.py           # Project macro source (injected into .qgs by inject_macro.py)
+│   ├── inject_macro.py         # Patches .qgs connection parameters from connection.cfg
+│   ├── connection.default.cfg  # Connection template — copy to connection.cfg and edit
+│   └── connection.cfg          # Per-environment credentials — gitignored, never committed
 │
 ├── datasets/                   # GeoPackage source files — gitignored, ~240 GB total
 ├── postgres_data/              # PostgreSQL persistent volume — gitignored
@@ -761,7 +808,13 @@ docker restart dbsm_postgrest
 
 **`initdb/03_api_functions.sql`** — Seven PL/pgSQL functions exposed as HTTP POST endpoints by PostgREST. All functions use `SECURITY DEFINER` with an explicit `search_path` to prevent privilege escalation.
 
-**`qgis_project/dbsm_demo.qgs`** — Ready-to-open QGIS 3 project (saved with 3.44). Connects to `localhost:3500` / `dbsm` and provides pre-configured layers and Python actions for interactive exploration.
+**`qgis_project/dbsm_demo.qgs`** — Ready-to-open QGIS 3 project (saved with 3.44). PostgreSQL connection parameters are embedded in the file XML. Before opening the project for the first time, copy `connection.default.cfg` to `connection.cfg`, fill in your environment's host/port/password, and run `python3 inject_macro.py` to patch the file. See [Step 7.4](#74-configure-the-database-connection).
+
+**`qgis_project/dbsm_macro.py`** — Canonical source for the QGIS project macro. The macro's `openProject()` function re-reads `connection.cfg` at runtime and re-applies all Python actions to every loaded layer. Edit this file to modify action behaviour, then re-run `inject_macro.py` to embed the updated code in the `.qgs` file.
+
+**`qgis_project/inject_macro.py`** — Python utility that patches `dbsm_demo.qgs` in-place: reads `connection.cfg`, substitutes host/port/user/password/database in all PostgreSQL datasource URIs in the XML, and injects the current `dbsm_macro.py` source into the project's `<Macros>` element. Run with QGIS closed.
+
+**`qgis_project/connection.default.cfg`** — Template for the per-environment connection file. Contains localhost defaults. Copy to `connection.cfg` (gitignored) and edit for your environment.
 
 ---
 
@@ -1347,13 +1400,33 @@ v1 layers are rendered in a flat beige colour.
 
 ### Opening the project
 
+#### First-time setup — patch the connection parameters
+
+The `.qgs` file stores PostgreSQL connection parameters (host, port, user, password) directly in its XML. The committed file may have different values from your environment. To avoid QGIS prompting for credentials on open, patch the file before the first use:
+
+```bash
+# 1. Create your local connection config (gitignored)
+cp qgis_project/connection.default.cfg qgis_project/connection.cfg
+
+# 2. Edit connection.cfg with your actual values
+#    host=localhost, port=3500, password=<your POSTGRES_PASSWORD>
+
+# 3. Patch the project file (run with QGIS closed)
+python3 qgis_project/inject_macro.py
+```
+
+The script rewrites all PostgreSQL datasource URIs in `dbsm_demo.qgs` and re-injects the macro. Run it once per environment, and re-run it whenever you change `connection.cfg` or modify `dbsm_macro.py`.
+
+> **Note on the committed project file:** The repository's `dbsm_demo.qgs` may have connection parameters pointing to the development server (not `localhost`). This is expected — always run `inject_macro.py` with your own `connection.cfg` before opening the project. The `connection.cfg` file is gitignored; your credentials are never committed.
+
+#### Opening
+
 1. Start the Docker stack: `task up`
 2. Open QGIS 3.x
 3. **Project → Open…** → navigate to `qgis_project/dbsm_demo.qgs`
-4. If QGIS prompts for a password, enter the value of `POSTGRES_PASSWORD` from your `.env` (default: `postgres`)
-5. If the GISCO boundary layers show as broken (red exclamation mark), right-click → **Repair Data Source** → point to the downloaded files
-
-> If you changed `POSTGRES_PASSWORD` in `.env`, update the layer connections: select a layer → right-click → **Properties → Source → Edit** → update the password in the connection URI.
+4. If macros are set to **"Ask"**, click **Enable macros** when prompted
+5. The project loads without credential prompts — the connection is embedded from your `connection.cfg`
+6. If the GISCO boundary layers show as broken (red exclamation mark), right-click → **Repair Data Source** → point to the downloaded files
 
 ---
 
@@ -1361,7 +1434,9 @@ v1 layers are rendered in a flat beige colour.
 
 Python actions are QGIS scripts attached to specific layers. They run when you click on a feature and execute an action from the popup menu. Each action is self-contained and works through the database connection.
 
-> **Prerequisite — macros must be enabled.** When you open the project, QGIS shows a security dialog asking whether to enable Python macros. Click **Enable macros** (or set **Always** in _Settings → Options → General → Enable macros_). The project macro is responsible for automatically wiring the building-level actions to every v2 layer (including any filtered "vista actual" layers you create during your session). If macros are disabled, only the country and commune boundary actions will be available.
+> **Prerequisite — macros must be enabled.** When you open the project, QGIS shows a security dialog asking whether to enable Python macros. Click **Enable macros** (or set **Always** in _Settings → Options → General → Enable macros_). The project macro is responsible for automatically wiring the building-level actions to every v2 layer (including any dynamically loaded layers). If macros are disabled, building-level actions will not be available.
+>
+> The macro also re-reads `connection.cfg` at `openProject()` time and re-applies the correct connection to all PostgreSQL layers. This is a second safety net: even if `inject_macro.py` was not run, the macro will patch the live layer connections in memory (though QGIS will still read the embedded URI on startup and may show a brief credential dialog before the macro runs).
 >
 > The macro source lives in `qgis_project/dbsm_macro.py`. To modify an action, edit that file and then re-run `python3 qgis_project/inject_macro.py` from the repository root to embed the updated code into `dbsm_demo.qgs`.
 
@@ -1457,7 +1532,9 @@ When you import a new country (e.g. `task import CITY=portugal VERSION=v2`), it 
 
 **Enable commune-level loading for the new country:**
 
-Open the `COMM_RG_01M_2016_3035` layer properties → **Actions → Load commune footprints** → click **Edit**. In the Python code, find the `COUNTRY_MAP` dictionary and add the new entry:
+The preferred way is to edit the canonical source and re-inject it:
+
+1. Open `qgis_project/dbsm_macro.py` and find the `COUNTRY_MAP` dictionary in the `_LOAD_COMMUNE` action string (around line 260):
 
 ```python
 COUNTRY_MAP = {
@@ -1468,7 +1545,15 @@ COUNTRY_MAP = {
 }
 ```
 
-Click **OK** and save the project.
+2. Save `dbsm_macro.py` and run (with QGIS closed):
+
+```bash
+python3 qgis_project/inject_macro.py
+```
+
+This embeds the updated macro into `dbsm_demo.qgs`. The change takes effect the next time you open the project.
+
+Alternatively, if you only want to test without editing the macro file, you can edit the action directly in QGIS: `COMM_RG_01M_2016_3035` layer → **Properties → Actions → Load commune footprints → Edit**. Note that changes made this way will be overwritten the next time `inject_macro.py` is run.
 
 **Enable country-level loading:** The **Load v2 country footprints** action on the country boundaries layer reads `NAME_ENGL` from the clicked polygon and maps it to a table name via `.lower()`. As long as the table name in PostgreSQL matches the lowercase English country name (which it will if you used `task import`), this action works for any imported country without modification.
 
@@ -1646,11 +1731,26 @@ ss -tlnp | grep -E ':3500|:3501|:3502|:3503|:3504'
 # Then edit .env, change the conflicting port, and run: task up
 ```
 
+**Problem: QGIS prompts for database credentials (localhost:5432) on every project open**
+
+The project file contains connection parameters that do not match your environment, or `inject_macro.py` has not been run yet. Fix:
+
+```bash
+# 1. Create connection.cfg if it does not exist
+cp qgis_project/connection.default.cfg qgis_project/connection.cfg
+# 2. Edit connection.cfg — set host, port, password to match your .env
+# 3. Patch the project file (with QGIS closed)
+python3 qgis_project/inject_macro.py
+```
+
+After running this, opening the project should require no credential prompts.
+
 **Problem: QGIS layer fails to load — "Unable to open datasource"**
 
 1. Confirm the stack is running: `task ps`
-2. Check the password matches: the QGIS connection URI uses `password='postgres'` by default. If you changed `POSTGRES_PASSWORD`, update the layer source.
-3. Confirm the country was imported: `task geoserver:status VERSION=v2`
+2. Check that `inject_macro.py` was run with the correct `connection.cfg` — the embedded URI must match the running stack.
+3. Check the password matches: `connection.cfg` must contain the same value as `POSTGRES_PASSWORD` in `.env`.
+4. Confirm the country was imported: `task geoserver:status VERSION=v2`
 
 **Problem: QGIS action "Load commune footprints" shows error for a country**
 
