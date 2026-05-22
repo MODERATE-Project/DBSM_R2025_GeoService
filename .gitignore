@@ -22,4 +22,4 @@ qgis_project/*.gpkg-shm
 qgis_project/*.gpkg-wal
 qgis_project/*.geojson
 qgis_project/*.qgs~
-qgis_project/*_attachments.zip
+qgis_project/*_attachments.zipqgis_project/connection.cfg
